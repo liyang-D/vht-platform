@@ -25,6 +25,7 @@ CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     access_key_id UUID NOT NULL REFERENCES access_keys(id) ON DELETE RESTRICT,
+    task_config JSONB,
     summary TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -35,6 +36,7 @@ CREATE TABLE messages (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     text TEXT NOT NULL,
+    structured_output JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
