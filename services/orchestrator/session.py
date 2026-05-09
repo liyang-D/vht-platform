@@ -4,6 +4,7 @@ from typing import Any
 
 from . import clients
 from . import db
+from . import safety
 from .schemas import TaskConfig
 
 
@@ -71,64 +72,6 @@ def validate_session_record(record: dict[str, Any] | None) -> None:
         raise QuotaExceededError("Access key quota has been exceeded.")
 
 
-def create_new_session(
-    access_key: str,
-    task_config: TaskConfig,
-) -> dict[str, Any]:
-    validate_task_config(task_config)
-
-    access_record = db.get_access_key_with_project(access_key)
-    validate_access_record(access_record)
-
-    session_record = db.create_session_record(
-        project_id=str(access_record["project_id"]),
-        access_key_id=str(access_record["access_key_id"]),
-        task_config=task_config.model_dump(),
-    )
-
-    task_config_dict = task_config.model_dump()
-    opening_prompt = build_opening_prompt(task_config_dict)
-
-    raw_llm_text, usage = clients.call_llm(opening_prompt)
-    opening_text, structured_output = parse_llm_output(raw_llm_text, task_config_dict)
-
-    db.add_message(
-        session_id=str(session_record["id"]),
-        role="avatar",
-        text=opening_text,
-        structured_output=structured_output,
-    )
-
-    usage_amount = usage.get("total_tokens") or 1
-
-    db.increment_usage(
-        project_id=str(access_record["project_id"]),
-        access_key_id=str(access_record["access_key_id"]),
-        amount=int(usage_amount),
-    )
-
-    return {
-        "session_id": str(session_record["id"]),
-        "project_id": str(session_record["project_id"]),
-        "message": "Session created successfully.",
-        "opening_message": opening_text,
-        "structured_output": structured_output,
-        "usage": usage,
-    }
-
-
-def format_history(messages: list[dict[str, Any]], max_messages: int = 12) -> str:
-    recent_messages = messages[-max_messages:]
-
-    lines = []
-    for message in recent_messages:
-        role = message["role"]
-        text = message["text"]
-        lines.append(f"{role}: {text}")
-
-    return "\n".join(lines)
-
-
 def build_opening_prompt(task_config: dict[str, Any]) -> str:
     role = task_config.get("role") or "You are a helpful avatar assistant."
     instructions = task_config.get("instructions") or "Answer clearly and naturally."
@@ -176,6 +119,64 @@ def build_opening_prompt(task_config: dict[str, Any]) -> str:
         parts.append("Return only the natural language opening message.")
 
     return "\n".join(parts).strip()
+
+
+def create_new_session(
+    access_key: str,
+    task_config: TaskConfig,
+) -> dict[str, Any]:
+    validate_task_config(task_config)
+
+    access_record = db.get_access_key_with_project(access_key)
+    validate_access_record(access_record)
+
+    session_record = db.create_session_record(
+        project_id=str(access_record["project_id"]),
+        access_key_id=str(access_record["access_key_id"]),
+        task_config=task_config.model_dump(),
+    )
+
+    task_config_dict = task_config.model_dump()
+    opening_prompt = build_opening_prompt(task_config_dict)
+
+    raw_llm_text, usage = clients.call_llm(opening_prompt)
+    opening_text, structured_output = parse_llm_output(raw_llm_text, task_config_dict)
+
+    db.add_message(
+        session_id=str(session_record["id"]),
+        role="avatar",
+        text=opening_text,
+        structured_output=structured_output,
+    )
+
+    usage_amount = usage.get("total_tokens") or 1
+
+    db.increment_usage(
+        project_id=str(access_record["project_id"]),
+        access_key_id=str(access_record["access_key_id"]),
+        amount=int(usage_amount),
+    )
+
+    return {
+        "session_id": str(session_record["id"]),
+        "project_id": str(session_record["project_id"]),
+        "message": "Session created successfully.",
+        "text": opening_text,
+        "structured_output": structured_output,
+        "usage": usage,
+    }
+
+
+def format_history(messages: list[dict[str, Any]], max_messages: int = 12) -> str:
+    recent_messages = messages[-max_messages:]
+
+    lines = []
+    for message in recent_messages:
+        role = message["role"]
+        text = message["text"]
+        lines.append(f"{role}: {text}")
+
+    return "\n".join(lines)
 
 
 def build_prompt(
@@ -313,20 +314,59 @@ def handle_user_message(
     session_record = db.get_session_with_project_and_key(session_id)
     validate_session_record(session_record)
 
-    messages = db.get_session_messages(session_id)
     task_config = db.serialise_task_config(session_record.get("task_config"))
+
+    safety_result = safety.basic_input_safety_check(
+        user_text=user_text,
+        task_config=task_config,
+    )
+
+    if not safety_result.allowed:
+        refusal_text = safety_result.message or "I’m not able to help with that request."
+
+        db.add_message(
+            session_id=session_id,
+            role="user",
+            text=user_text,
+        )
+
+        db.add_message(
+            session_id=session_id,
+            role="avatar",
+            text=refusal_text,
+            structured_output={
+                "safety_blocked": True,
+                "reason": safety_result.reason,
+            },
+        )
+
+        return {
+            "session_id": session_id,
+            "text": refusal_text,
+            "structured_output": {
+                "safety_blocked": True,
+                "reason": safety_result.reason,
+            },
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            },
+        }
+
+    messages = db.get_session_messages(session_id)
+    db.add_message(
+        session_id=session_id,
+        role="user",
+        text=user_text,
+    )
+
     history = format_history(messages)
     prompt = build_prompt(
         task_config=task_config,
         summary=session_record.get("summary"),
         history=history,
         latest_user_text=user_text,
-    )
-
-    db.add_message(
-        session_id=session_id,
-        role="user",
-        text=user_text,
     )
 
     raw_llm_text, usage = clients.call_llm(prompt)
