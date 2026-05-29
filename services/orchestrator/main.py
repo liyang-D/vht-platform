@@ -5,6 +5,7 @@ from .schemas import (
     CreateSessionRequest,
     CreateSessionResponse,
     EndSessionResponse,
+    GetSessionResponse,
     SendMessageRequest,
     SendMessageResponse,
 )
@@ -40,6 +41,24 @@ def create_session(request: CreateSessionRequest):
 
     except session.OrchestratorError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sessions/{session_id}", response_model=GetSessionResponse)
+def get_session(session_id: str):
+    try:
+        return session.get_existing_session(session_id)
+
+    except session.NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    except session.AccessDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    except session.QuotaExceededError as e:
+        raise HTTPException(status_code=429, detail=str(e))
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

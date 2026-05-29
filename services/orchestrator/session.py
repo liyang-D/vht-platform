@@ -161,7 +161,7 @@ def create_new_session(
         "session_id": str(session_record["id"]),
         "project_id": str(session_record["project_id"]),
         "message": "Session created successfully.",
-        "text": opening_text,
+        "opening_message": opening_text,
         "structured_output": structured_output,
         "usage": usage,
     }
@@ -392,6 +392,30 @@ def handle_user_message(
         "text": avatar_text,
         "structured_output": structured_output,
         "usage": usage,
+    }
+
+
+def get_existing_session(session_id: str) -> dict[str, Any]:
+    session_record = db.get_session_with_project_and_key(session_id)
+    validate_session_record(session_record)
+
+    messages = db.get_session_messages(session_id)
+
+    return {
+        "session_id": session_id,
+        "project_id": str(session_record["project_id"]),
+        "summary": session_record.get("summary"),
+        "task_config": db.serialise_task_config(session_record.get("task_config")),
+        "messages": [
+            {
+                "id": str(message["id"]),
+                "role": message["role"],
+                "text": message["text"],
+                "structured_output": message.get("structured_output"),
+                "created_at": message["created_at"].isoformat(),
+            }
+            for message in messages
+        ],
     }
 
 

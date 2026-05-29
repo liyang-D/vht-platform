@@ -6,11 +6,15 @@ INSERT INTO projects (
     quota,
     usage_count
 )
-VALUES (
+SELECT
     'Mini Project Template',
     TRUE,
     NULL,
     0
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM projects
+    WHERE name = 'Mini Project Template'
 );
 
 INSERT INTO access_keys (
@@ -26,8 +30,11 @@ VALUES (
         SELECT id
         FROM projects
         WHERE name = 'Mini Project Template'
+        ORDER BY created_at ASC
+        LIMIT 1
     ),
     TRUE,
     NULL,
     0
-);
+)
+ON CONFLICT (key_value) DO NOTHING;

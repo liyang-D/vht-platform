@@ -36,6 +36,22 @@ class SendMessageResponse(BaseModel):
     usage: dict[str, Any] | None = None
 
 
+class SessionMessage(BaseModel):
+    id: str
+    role: str
+    text: str
+    structured_output: dict[str, Any] | None = None
+    created_at: str
+
+
+class GetSessionResponse(BaseModel):
+    session_id: str
+    project_id: str
+    summary: str | None = None
+    task_config: dict[str, Any]
+    messages: list[SessionMessage]
+
+
 class EndSessionResponse(BaseModel):
     session_id: str
     summary: str

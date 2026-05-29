@@ -19,6 +19,7 @@ venv/
 node_modules/
 dist/
 build/
+.vite/
 
 # Logs
 *.log
