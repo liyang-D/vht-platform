@@ -1,5 +1,6 @@
 import json
 import re
+import base64
 from typing import Any
 
 from . import clients
@@ -391,6 +392,43 @@ def handle_user_message(
         "session_id": session_id,
         "text": avatar_text,
         "structured_output": structured_output,
+        "usage": usage,
+    }
+
+
+def handle_user_audio_message(
+    session_id: str,
+    audio_bytes: bytes,
+    mime_type: str,
+) -> dict[str, Any]:
+    transcript, transcription_usage = clients.transcribe_audio(
+        audio_bytes=audio_bytes,
+        mime_type=mime_type,
+    )
+
+    if not transcript:
+        raise OrchestratorError("No speech was detected in the audio.")
+
+    response = handle_user_message(
+        session_id=session_id,
+        user_text=transcript,
+    )
+
+    audio_bytes, audio_mime_type, speech_usage = clients.synthesise_speech(
+        response["text"]
+    )
+
+    usage = response.get("usage") or {}
+    usage["transcription"] = transcription_usage
+    usage["speech"] = speech_usage
+
+    return {
+        "session_id": session_id,
+        "transcript": transcript,
+        "text": response["text"],
+        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+        "audio_mime_type": audio_mime_type,
+        "structured_output": response.get("structured_output"),
         "usage": usage,
     }
 

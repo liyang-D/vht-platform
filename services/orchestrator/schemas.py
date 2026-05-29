@@ -36,6 +36,16 @@ class SendMessageResponse(BaseModel):
     usage: dict[str, Any] | None = None
 
 
+class SendAudioMessageResponse(BaseModel):
+    session_id: str
+    transcript: str
+    text: str
+    audio_base64: str
+    audio_mime_type: str
+    structured_output: dict[str, Any] | None = None
+    usage: dict[str, Any] | None = None
+
+
 class SessionMessage(BaseModel):
     id: str
     role: str

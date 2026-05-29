@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+import httpx
 from openai import OpenAI
 
 
@@ -20,6 +21,10 @@ def load_project_env() -> None:
 load_project_env()
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-nano")
+DEEPGRAM_API_BASE_URL = "https://api.deepgram.com/v1"
+DEEPGRAM_ASR_MODEL = os.getenv("DEEPGRAM_ASR_MODEL", "nova-3")
+DEEPGRAM_TTS_MODEL = os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-thalia-en")
+DEEPGRAM_TTS_MIME_TYPE = "audio/wav"
 
 
 def get_openai_client() -> OpenAI:
@@ -29,6 +34,15 @@ def get_openai_client() -> OpenAI:
         raise RuntimeError("OPENAI_API_KEY is not set in .env")
 
     return OpenAI(api_key=api_key)
+
+
+def get_deepgram_api_key() -> str:
+    api_key = os.getenv("DEEPGRAM_API_KEY")
+
+    if not api_key:
+        raise RuntimeError("DEEPGRAM_API_KEY is not set in .env")
+
+    return api_key
 
 
 def extract_usage(response: Any) -> dict[str, Any]:
@@ -83,3 +97,72 @@ Conversation:
 """.strip()
 
     return call_llm(prompt)
+
+
+def transcribe_audio(
+    audio_bytes: bytes,
+    mime_type: str,
+) -> tuple[str, dict[str, Any]]:
+    if not audio_bytes:
+        raise RuntimeError("Audio payload is empty.")
+
+    response = httpx.post(
+        f"{DEEPGRAM_API_BASE_URL}/listen",
+        params={
+            "model": DEEPGRAM_ASR_MODEL,
+            "smart_format": "true",
+        },
+        headers={
+            "Authorization": f"Token {get_deepgram_api_key()}",
+            "Content-Type": mime_type or "application/octet-stream",
+        },
+        content=audio_bytes,
+        timeout=60.0,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    alternatives = (
+        payload.get("results", {})
+        .get("channels", [{}])[0]
+        .get("alternatives", [])
+    )
+
+    transcript = ""
+    confidence = None
+    if alternatives:
+        transcript = alternatives[0].get("transcript", "")
+        confidence = alternatives[0].get("confidence")
+
+    return transcript.strip(), {
+        "provider": "deepgram",
+        "model": DEEPGRAM_ASR_MODEL,
+        "confidence": confidence,
+    }
+
+
+def synthesise_speech(text: str) -> tuple[bytes, str, dict[str, Any]]:
+    if not text.strip():
+        raise RuntimeError("Text payload is empty.")
+
+    response = httpx.post(
+        f"{DEEPGRAM_API_BASE_URL}/speak",
+        params={
+            "model": DEEPGRAM_TTS_MODEL,
+        },
+        headers={
+            "Authorization": f"Token {get_deepgram_api_key()}",
+            "Content-Type": "application/json",
+            "Accept": DEEPGRAM_TTS_MIME_TYPE,
+        },
+        json={"text": text},
+        timeout=60.0,
+    )
+    response.raise_for_status()
+
+    mime_type = response.headers.get("content-type", DEEPGRAM_TTS_MIME_TYPE)
+
+    return response.content, mime_type, {
+        "provider": "deepgram",
+        "model": DEEPGRAM_TTS_MODEL,
+    }

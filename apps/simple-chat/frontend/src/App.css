@@ -56,6 +56,7 @@
   display: grid;
   grid-template-columns: auto auto 1fr;
   gap: 10px;
+  align-items: center;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
@@ -83,6 +84,28 @@
 .session-controls button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.mode-toggle {
+  justify-self: end;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-subtle);
+}
+
+.mode-toggle button {
+  min-width: 72px;
+  color: var(--text-muted);
+  border-radius: 0;
+  background: transparent;
+}
+
+.mode-toggle button.active {
+  color: #ffffff;
+  background: var(--accent);
 }
 
 .message-list {
@@ -212,6 +235,45 @@
   opacity: 0.58;
 }
 
+.voice-composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-subtle);
+}
+
+.waveform {
+  width: 100%;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.voice-composer button {
+  min-width: 148px;
+  height: 44px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--accent);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.voice-composer button.recording {
+  background: #dc2626;
+}
+
+.voice-composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 0;
@@ -232,11 +294,24 @@
     grid-template-columns: 1fr 1fr;
   }
 
+  .mode-toggle {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
   .composer {
     grid-template-columns: 1fr;
   }
 
   .composer button {
+    width: 100%;
+  }
+
+  .voice-composer {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-composer button {
     width: 100%;
   }
 }

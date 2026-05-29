@@ -64,6 +64,28 @@ async def send_message(session_id: str, text: str) -> dict[str, Any]:
     return response.json()
 
 
+async def send_audio_message(
+    session_id: str,
+    audio_bytes: bytes,
+    filename: str,
+    mime_type: str,
+) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-messages",
+            files={
+                "audio": (
+                    filename,
+                    audio_bytes,
+                    mime_type or "application/octet-stream",
+                )
+            },
+        )
+
+    _raise_for_error(response)
+    return response.json()
+
+
 async def end_session(session_id: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(f"{ORCHESTRATOR_URL}/sessions/{session_id}/end")

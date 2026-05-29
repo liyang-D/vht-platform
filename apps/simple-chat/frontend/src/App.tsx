@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 
+type ChatMode = 'text' | 'voice'
+
 type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
@@ -27,6 +29,13 @@ type SendMessageResponse = {
   text: string
 }
 
+type SendAudioMessageResponse = {
+  transcript: string
+  text: string
+  audio_base64: string
+  audio_mime_type: string
+}
+
 type EndSessionResponse = {
   summary: string
 }
@@ -45,6 +54,17 @@ function toChatMessage(message: StoredSessionMessage): ChatMessage {
   }
 }
 
+function audioBase64ToUrl(base64: string, mimeType: string) {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }))
+}
+
 async function readError(response: Response) {
   try {
     const payload = await response.json()
@@ -55,6 +75,7 @@ async function readError(response: Response) {
 }
 
 function App() {
+  const [mode, setMode] = useState<ChatMode>('text')
   const [hasSession, setHasSession] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -62,7 +83,17 @@ function App() {
   const [status, setStatus] = useState('Checking for an existing chat...')
   const [isBusy, setIsBusy] = useState(false)
   const [isEnded, setIsEnded] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<BlobPart[]>([])
+  const audioStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const avatarAudioRef = useRef<HTMLAudioElement | null>(null)
+  const avatarAudioUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     let ignore = false
@@ -111,6 +142,8 @@ function App() {
 
     return () => {
       ignore = true
+      stopAvatarAudio()
+      stopRecordingResources()
     }
   }, [])
 
@@ -118,7 +151,75 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  function stopAvatarAudio() {
+    if (avatarAudioRef.current) {
+      avatarAudioRef.current.pause()
+      avatarAudioRef.current.currentTime = 0
+      avatarAudioRef.current = null
+    }
+
+    if (avatarAudioUrlRef.current) {
+      URL.revokeObjectURL(avatarAudioUrlRef.current)
+      avatarAudioUrlRef.current = null
+    }
+  }
+
+  function stopRecordingResources() {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+
+    if (audioContextRef.current) {
+      void audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop())
+    audioStreamRef.current = null
+    analyserRef.current = null
+  }
+
+  function drawWaveform() {
+    const canvas = waveformCanvasRef.current
+    const analyser = analyserRef.current
+
+    if (!canvas || !analyser) {
+      return
+    }
+
+    const context = canvas.getContext('2d')
+    if (!context) {
+      return
+    }
+
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    analyser.getByteTimeDomainData(data)
+
+    context.clearRect(0, 0, canvas.width, canvas.height)
+    context.lineWidth = 2
+    context.strokeStyle = '#2563eb'
+    context.beginPath()
+
+    const sliceWidth = canvas.width / data.length
+
+    for (let index = 0; index < data.length; index += 1) {
+      const x = index * sliceWidth
+      const y = (data[index] / 255) * canvas.height
+
+      if (index === 0) {
+        context.moveTo(x, y)
+      } else {
+        context.lineTo(x, y)
+      }
+    }
+
+    context.stroke()
+    animationFrameRef.current = requestAnimationFrame(drawWaveform)
+  }
+
   async function startSession() {
+    stopAvatarAudio()
     setIsBusy(true)
     setStatus('Starting session...')
     setSummary(null)
@@ -157,6 +258,7 @@ function App() {
       return
     }
 
+    stopAvatarAudio()
     setIsBusy(true)
     setStatus('Ending session...')
 
@@ -190,6 +292,7 @@ function App() {
       return
     }
 
+    stopAvatarAudio()
     setInput('')
     setIsBusy(true)
     setStatus('Thinking...')
@@ -243,6 +346,135 @@ function App() {
     }
   }
 
+  async function startRecording() {
+    if (!hasSession || isBusy || isEnded || isRecording) {
+      return
+    }
+
+    stopAvatarAudio()
+    setStatus('Recording...')
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const audioContext = new AudioContext()
+      const source = audioContext.createMediaStreamSource(stream)
+      const analyser = audioContext.createAnalyser()
+
+      analyser.fftSize = 2048
+      source.connect(analyser)
+
+      audioStreamRef.current = stream
+      audioContextRef.current = audioContext
+      analyserRef.current = analyser
+      audioChunksRef.current = []
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      })
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        })
+        audioChunksRef.current = []
+        stopRecordingResources()
+        void sendAudioBlob(audioBlob)
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setIsRecording(true)
+      drawWaveform()
+    } catch (error) {
+      stopRecordingResources()
+      setIsRecording(false)
+      setStatus(error instanceof Error ? error.message : 'Could not access microphone')
+    }
+  }
+
+  function stopRecording() {
+    if (!isRecording || !mediaRecorderRef.current) {
+      return
+    }
+
+    setIsRecording(false)
+    setStatus('Processing voice...')
+    mediaRecorderRef.current.stop()
+    mediaRecorderRef.current = null
+  }
+
+  async function sendAudioBlob(audioBlob: Blob) {
+    if (!hasSession || audioBlob.size === 0) {
+      setStatus('Ready')
+      return
+    }
+
+    setIsBusy(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('audio', audioBlob, 'voice-message.webm')
+
+      const response = await fetch(`${API_BASE_URL}/api/audio-messages`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(await readError(response))
+      }
+
+      const payload = (await response.json()) as SendAudioMessageResponse
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: messageId(),
+          role: 'user',
+          text: payload.transcript,
+        },
+        {
+          id: messageId(),
+          role: 'assistant',
+          text: payload.text,
+        },
+      ])
+
+      const audioUrl = audioBase64ToUrl(payload.audio_base64, payload.audio_mime_type)
+      const audio = new Audio(audioUrl)
+      avatarAudioRef.current = audio
+      avatarAudioUrlRef.current = audioUrl
+
+      audio.onended = () => {
+        stopAvatarAudio()
+      }
+
+      await audio.play()
+      setStatus('Ready')
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: messageId(),
+          role: 'assistant',
+          text: error instanceof Error ? error.message : 'Something went wrong',
+        },
+      ])
+      setStatus('Error')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="chat-panel" aria-label="Simple chat">
@@ -255,17 +487,35 @@ function App() {
         </header>
 
         <section className="session-controls" aria-label="Session controls">
-          <button disabled={isBusy} onClick={startSession} type="button">
+          <button disabled={isBusy || isRecording} onClick={startSession} type="button">
             Start New Chat
           </button>
           <button
             className="secondary"
-            disabled={isBusy || !hasSession}
+            disabled={isBusy || isRecording || !hasSession}
             onClick={endSession}
             type="button"
           >
             End Chat
           </button>
+          <div className="mode-toggle" role="group" aria-label="Input mode">
+            <button
+              className={mode === 'text' ? 'active' : ''}
+              disabled={isRecording}
+              onClick={() => setMode('text')}
+              type="button"
+            >
+              Text
+            </button>
+            <button
+              className={mode === 'voice' ? 'active' : ''}
+              disabled={isRecording}
+              onClick={() => setMode('voice')}
+              type="button"
+            >
+              Voice
+            </button>
+          </div>
         </section>
 
         <div className="message-list">
@@ -302,25 +552,44 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form className="composer" onSubmit={handleSubmit}>
-          <textarea
-            aria-label="Message"
-            disabled={!hasSession || isBusy || isEnded}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                event.currentTarget.form?.requestSubmit()
-              }
-            }}
-            placeholder={isEnded ? 'This session has ended' : 'Type a message...'}
-            rows={1}
-            value={input}
-          />
-          <button disabled={!hasSession || !input.trim() || isBusy || isEnded} type="submit">
-            Send
-          </button>
-        </form>
+        {mode === 'text' ? (
+          <form className="composer" onSubmit={handleSubmit}>
+            <textarea
+              aria-label="Message"
+              disabled={!hasSession || isBusy || isEnded || isRecording}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
+              placeholder={isEnded ? 'This session has ended' : 'Type a message...'}
+              rows={1}
+              value={input}
+            />
+            <button disabled={!hasSession || !input.trim() || isBusy || isEnded} type="submit">
+              Send
+            </button>
+          </form>
+        ) : (
+          <section className="voice-composer" aria-label="Voice message controls">
+            <canvas
+              className="waveform"
+              height={48}
+              ref={waveformCanvasRef}
+              width={360}
+            />
+            <button
+              className={isRecording ? 'recording' : ''}
+              disabled={!hasSession || isBusy || isEnded}
+              onClick={isRecording ? stopRecording : startRecording}
+              type="button"
+            >
+              {isRecording ? 'Stop Recording' : 'Start Recording'}
+            </button>
+          </section>
+        )}
       </section>
     </main>
   )
