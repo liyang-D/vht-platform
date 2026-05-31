@@ -31,13 +31,17 @@ def _raise_for_error(response: httpx.Response) -> None:
     raise OrchestratorClientError(response.status_code, detail)
 
 
-async def create_session(task_config: dict[str, Any]) -> dict[str, Any]:
+async def create_session(
+    task_config: dict[str, Any],
+    response_modality: str = "text",
+) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{ORCHESTRATOR_URL}/sessions",
             json={
                 "access_key": ACCESS_KEY,
                 "task_config": task_config,
+                "response_modality": response_modality,
             },
         )
 
@@ -53,11 +57,40 @@ async def get_session(session_id: str) -> dict[str, Any]:
     return response.json()
 
 
-async def send_message(session_id: str, text: str) -> dict[str, Any]:
+async def send_message(
+    session_id: str,
+    text: str,
+    response_modality: str = "text",
+) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{ORCHESTRATOR_URL}/sessions/{session_id}/messages",
-            json={"text": text},
+            json={
+                "text": text,
+                "response_modality": response_modality,
+            },
+        )
+
+    _raise_for_error(response)
+    return response.json()
+
+
+async def transcribe_audio_message(
+    session_id: str,
+    audio_bytes: bytes,
+    filename: str,
+    mime_type: str,
+) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-transcriptions",
+            files={
+                "audio": (
+                    filename,
+                    audio_bytes,
+                    mime_type or "application/octet-stream",
+                )
+            },
         )
 
     _raise_for_error(response)

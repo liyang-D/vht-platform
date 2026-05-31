@@ -9,6 +9,7 @@ from .schemas import (
     SendAudioMessageResponse,
     SendMessageRequest,
     SendMessageResponse,
+    TranscribeAudioResponse,
 )
 
 
@@ -32,6 +33,7 @@ def create_session(request: CreateSessionRequest):
         return session.create_new_session(
             access_key=request.access_key,
             task_config=request.task_config,
+            response_modality=request.response_modality,
         )
     
     except session.AccessDeniedError as e:
@@ -71,6 +73,7 @@ def send_message(session_id: str, request: SendMessageRequest):
         return session.handle_user_message(
             session_id=session_id,
             user_text=request.text,
+            response_modality=request.response_modality,
         )
 
     except session.NotFoundError as e:
@@ -81,6 +84,34 @@ def send_message(session_id: str, request: SendMessageRequest):
 
     except session.QuotaExceededError as e:
         raise HTTPException(status_code=429, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/sessions/{session_id}/audio-transcriptions",
+    response_model=TranscribeAudioResponse,
+)
+def transcribe_audio_message(session_id: str, audio: UploadFile = File(...)):
+    try:
+        return session.transcribe_user_audio_message(
+            session_id=session_id,
+            audio_bytes=audio.file.read(),
+            mime_type=audio.content_type or "application/octet-stream",
+        )
+
+    except session.NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    except session.AccessDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    except session.QuotaExceededError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    except session.OrchestratorError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ class TaskConfig(BaseModel):
 class CreateSessionRequest(BaseModel):
     access_key: str
     task_config: TaskConfig = Field(default_factory=TaskConfig)
+    response_modality: Literal["text", "voice"] = "text"
 
 
 class CreateSessionResponse(BaseModel):
@@ -21,18 +22,29 @@ class CreateSessionResponse(BaseModel):
     project_id: str
     message: str
     opening_message: str
+    audio_base64: str | None = None
+    audio_mime_type: str | None = None
     structured_output: dict[str, Any] | None = None
     usage: dict[str, Any] | None = None
 
 
 class SendMessageRequest(BaseModel):
     text: str
+    response_modality: Literal["text", "voice"] = "text"
 
 
 class SendMessageResponse(BaseModel):
     session_id: str
     text: str
+    audio_base64: str | None = None
+    audio_mime_type: str | None = None
     structured_output: dict[str, Any] | None = None
+    usage: dict[str, Any] | None = None
+
+
+class TranscribeAudioResponse(BaseModel):
+    session_id: str
+    transcript: str
     usage: dict[str, Any] | None = None
 
 

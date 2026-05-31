@@ -26,6 +26,11 @@ app.add_middleware(
 
 class SendMessageRequest(BaseModel):
     text: str
+    response_modality: str = "text"
+
+
+class CreateSessionRequest(BaseModel):
+    response_modality: str = "text"
 
 
 def require_session_id(session_id: str | None) -> str:
@@ -72,9 +77,12 @@ def health_check():
 
 
 @app.post("/api/sessions")
-async def create_session(response: Response):
+async def create_session(request: CreateSessionRequest, response: Response):
     try:
-        payload = await orchestrator_client.create_session(flow.build_chat_task_config())
+        payload = await orchestrator_client.create_session(
+            task_config=flow.build_chat_task_config(),
+            response_modality=request.response_modality,
+        )
         set_session_cookie(response, payload["session_id"])
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:
@@ -102,7 +110,30 @@ async def send_message(
     session_id = require_session_id(simple_chat_session_id)
 
     try:
-        payload = await orchestrator_client.send_message(session_id, request.text)
+        payload = await orchestrator_client.send_message(
+            session_id=session_id,
+            text=request.text,
+            response_modality=request.response_modality,
+        )
+        return public_session_payload(payload)
+    except orchestrator_client.OrchestratorClientError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@app.post("/api/audio-transcriptions")
+async def transcribe_audio_message(
+    audio: UploadFile = File(...),
+    simple_chat_session_id: str | None = Cookie(default=None),
+):
+    session_id = require_session_id(simple_chat_session_id)
+
+    try:
+        payload = await orchestrator_client.transcribe_audio_message(
+            session_id=session_id,
+            audio_bytes=await audio.read(),
+            filename=audio.filename or "voice-message.webm",
+            mime_type=audio.content_type or "application/octet-stream",
+        )
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

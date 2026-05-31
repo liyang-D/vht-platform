@@ -73,7 +73,45 @@ def validate_session_record(record: dict[str, Any] | None) -> None:
         raise QuotaExceededError("Access key quota has been exceeded.")
 
 
-def build_opening_prompt(task_config: dict[str, Any]) -> str:
+def add_modality_instructions(parts: list[str], response_modality: str) -> None:
+    if response_modality != "voice":
+        return
+
+    parts.extend(
+        [
+            "Current interaction mode:",
+            "Voice conversation.",
+            "",
+            "Voice response style:",
+            "Write for speech, not for reading on a screen.",
+            "Use natural, conversational sentences.",
+            "Avoid markdown, bullets, tables, symbols, dense punctuation, code-like formatting, and hard-to-pronounce abbreviations.",
+            "Spell out acronyms, units, and shorthand when it helps pronunciation.",
+            "Prefer short responses unless the user asks for detail.",
+            "",
+        ]
+    )
+
+
+def add_response_audio(
+    payload: dict[str, Any],
+    text: str,
+    usage: dict[str, Any],
+    response_modality: str,
+) -> None:
+    if response_modality != "voice":
+        return
+
+    audio_bytes, audio_mime_type, speech_usage = clients.synthesise_speech(text)
+    payload["audio_base64"] = base64.b64encode(audio_bytes).decode("ascii")
+    payload["audio_mime_type"] = audio_mime_type
+    usage["speech"] = speech_usage
+
+
+def build_opening_prompt(
+    task_config: dict[str, Any],
+    response_modality: str = "text",
+) -> str:
     role = task_config.get("role") or "You are a helpful avatar assistant."
     instructions = task_config.get("instructions") or "Answer clearly and naturally."
     requires_structured_output = task_config.get("requires_structured_output", False)
@@ -98,6 +136,8 @@ def build_opening_prompt(task_config: dict[str, Any]) -> str:
         "Do not ask too many questions at once.",
         "",
     ]
+
+    add_modality_instructions(parts, response_modality)
 
     if requires_structured_output:
         parts.extend(
@@ -125,6 +165,7 @@ def build_opening_prompt(task_config: dict[str, Any]) -> str:
 def create_new_session(
     access_key: str,
     task_config: TaskConfig,
+    response_modality: str = "text",
 ) -> dict[str, Any]:
     validate_task_config(task_config)
 
@@ -138,7 +179,7 @@ def create_new_session(
     )
 
     task_config_dict = task_config.model_dump()
-    opening_prompt = build_opening_prompt(task_config_dict)
+    opening_prompt = build_opening_prompt(task_config_dict, response_modality)
 
     raw_llm_text, usage = clients.call_llm(opening_prompt)
     opening_text, structured_output = parse_llm_output(raw_llm_text, task_config_dict)
@@ -158,14 +199,20 @@ def create_new_session(
         amount=int(usage_amount),
     )
 
-    return {
+    payload = {
         "session_id": str(session_record["id"]),
         "project_id": str(session_record["project_id"]),
         "message": "Session created successfully.",
         "opening_message": opening_text,
+        "audio_base64": None,
+        "audio_mime_type": None,
         "structured_output": structured_output,
         "usage": usage,
     }
+
+    add_response_audio(payload, opening_text, usage, response_modality)
+
+    return payload
 
 
 def format_history(messages: list[dict[str, Any]], max_messages: int = 12) -> str:
@@ -185,6 +232,7 @@ def build_prompt(
     summary: str | None,
     history: str,
     latest_user_text: str,
+    response_modality: str = "text",
 ) -> str:
     role = task_config.get("role") or "You are a helpful avatar assistant."
     instructions = task_config.get("instructions") or "Answer clearly and naturally."
@@ -206,6 +254,8 @@ def build_prompt(
         instructions,
         "",
     ]
+
+    add_modality_instructions(parts, response_modality)
 
     if summary:
         parts.extend(
@@ -311,6 +361,7 @@ def parse_llm_output(
 def handle_user_message(
     session_id: str,
     user_text: str,
+    response_modality: str = "text",
 ) -> dict[str, Any]:
     session_record = db.get_session_with_project_and_key(session_id)
     validate_session_record(session_record)
@@ -368,6 +419,7 @@ def handle_user_message(
         summary=session_record.get("summary"),
         history=history,
         latest_user_text=user_text,
+        response_modality=response_modality,
     )
 
     raw_llm_text, usage = clients.call_llm(prompt)
@@ -388,19 +440,28 @@ def handle_user_message(
         amount=int(usage_amount),
     )
 
-    return {
+    payload = {
         "session_id": session_id,
         "text": avatar_text,
+        "audio_base64": None,
+        "audio_mime_type": None,
         "structured_output": structured_output,
         "usage": usage,
     }
 
+    add_response_audio(payload, avatar_text, usage, response_modality)
 
-def handle_user_audio_message(
+    return payload
+
+
+def transcribe_user_audio_message(
     session_id: str,
     audio_bytes: bytes,
     mime_type: str,
 ) -> dict[str, Any]:
+    session_record = db.get_session_with_project_and_key(session_id)
+    validate_session_record(session_record)
+
     transcript, transcription_usage = clients.transcribe_audio(
         audio_bytes=audio_bytes,
         mime_type=mime_type,
@@ -409,25 +470,42 @@ def handle_user_audio_message(
     if not transcript:
         raise OrchestratorError("No speech was detected in the audio.")
 
+    return {
+        "session_id": session_id,
+        "transcript": transcript,
+        "usage": {
+            "transcription": transcription_usage,
+        },
+    }
+
+
+def handle_user_audio_message(
+    session_id: str,
+    audio_bytes: bytes,
+    mime_type: str,
+) -> dict[str, Any]:
+    transcription = transcribe_user_audio_message(
+        session_id=session_id,
+        audio_bytes=audio_bytes,
+        mime_type=mime_type,
+    )
+    transcript = transcription["transcript"]
+
     response = handle_user_message(
         session_id=session_id,
         user_text=transcript,
-    )
-
-    audio_bytes, audio_mime_type, speech_usage = clients.synthesise_speech(
-        response["text"]
+        response_modality="voice",
     )
 
     usage = response.get("usage") or {}
-    usage["transcription"] = transcription_usage
-    usage["speech"] = speech_usage
+    usage["transcription"] = transcription["usage"]["transcription"]
 
     return {
         "session_id": session_id,
         "transcript": transcript,
         "text": response["text"],
-        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
-        "audio_mime_type": audio_mime_type,
+        "audio_base64": response["audio_base64"],
+        "audio_mime_type": response["audio_mime_type"],
         "structured_output": response.get("structured_output"),
         "usage": usage,
     }

@@ -12,6 +12,8 @@ type ChatMessage = {
 
 type CreateSessionResponse = {
   opening_message: string
+  audio_base64: string | null
+  audio_mime_type: string | null
 }
 
 type StoredSessionMessage = {
@@ -27,13 +29,12 @@ type GetSessionResponse = {
 
 type SendMessageResponse = {
   text: string
+  audio_base64: string | null
+  audio_mime_type: string | null
 }
 
-type SendAudioMessageResponse = {
+type TranscribeAudioResponse = {
   transcript: string
-  text: string
-  audio_base64: string
-  audio_mime_type: string
 }
 
 type EndSessionResponse = {
@@ -164,6 +165,25 @@ function App() {
     }
   }
 
+  async function playAvatarSpeech(audioBase64: string | null, audioMimeType: string | null) {
+    if (!audioBase64 || !audioMimeType) {
+      return
+    }
+
+    stopAvatarAudio()
+
+    const audioUrl = audioBase64ToUrl(audioBase64, audioMimeType)
+    const audio = new Audio(audioUrl)
+    avatarAudioRef.current = audio
+    avatarAudioUrlRef.current = audioUrl
+
+    audio.onended = () => {
+      stopAvatarAudio()
+    }
+
+    await audio.play()
+  }
+
   function stopRecordingResources() {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
@@ -228,6 +248,12 @@ function App() {
       const response = await fetch(`${API_BASE_URL}/api/sessions`, {
         method: 'POST',
         credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          response_modality: mode,
+        }),
       })
 
       if (!response.ok) {
@@ -246,6 +272,7 @@ function App() {
         },
       ])
       setStatus('Ready')
+      await playAvatarSpeech(payload.audio_base64, payload.audio_mime_type)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not start session')
     } finally {
@@ -313,7 +340,10 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          response_modality: 'text',
+        }),
       })
 
       if (!response.ok) {
@@ -423,25 +453,48 @@ function App() {
       const formData = new FormData()
       formData.append('audio', audioBlob, 'voice-message.webm')
 
-      const response = await fetch(`${API_BASE_URL}/api/audio-messages`, {
+      const transcriptionResponse = await fetch(`${API_BASE_URL}/api/audio-transcriptions`, {
         method: 'POST',
         credentials: 'include',
         body: formData,
       })
 
-      if (!response.ok) {
-        throw new Error(await readError(response))
+      if (!transcriptionResponse.ok) {
+        throw new Error(await readError(transcriptionResponse))
       }
 
-      const payload = (await response.json()) as SendAudioMessageResponse
+      const transcription = (await transcriptionResponse.json()) as TranscribeAudioResponse
 
       setMessages((current) => [
         ...current,
         {
           id: messageId(),
           role: 'user',
-          text: payload.transcript,
+          text: transcription.transcript,
         },
+      ])
+      setStatus('Thinking...')
+
+      const response = await fetch(`${API_BASE_URL}/api/messages`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: transcription.transcript,
+          response_modality: 'voice',
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(await readError(response))
+      }
+
+      const payload = (await response.json()) as SendMessageResponse
+
+      setMessages((current) => [
+        ...current,
         {
           id: messageId(),
           role: 'assistant',
@@ -449,17 +502,8 @@ function App() {
         },
       ])
 
-      const audioUrl = audioBase64ToUrl(payload.audio_base64, payload.audio_mime_type)
-      const audio = new Audio(audioUrl)
-      avatarAudioRef.current = audio
-      avatarAudioUrlRef.current = audioUrl
-
-      audio.onended = () => {
-        stopAvatarAudio()
-      }
-
-      await audio.play()
       setStatus('Ready')
+      await playAvatarSpeech(payload.audio_base64, payload.audio_mime_type)
     } catch (error) {
       setMessages((current) => [
         ...current,
