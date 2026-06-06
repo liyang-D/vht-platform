@@ -68,15 +68,17 @@ def create_session_record(
     project_id: str,
     access_key_id: str,
     task_config: dict[str, Any],
+    runtime_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     sql = """
         INSERT INTO sessions (
             project_id,
             access_key_id,
-            task_config
+            task_config,
+            runtime_state
         )
-        VALUES (%s, %s, %s)
-        RETURNING id, project_id, access_key_id, task_config, summary, created_at, updated_at;
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, project_id, access_key_id, task_config, runtime_state, summary, created_at, updated_at;
     """
 
     with get_connection() as conn:
@@ -87,6 +89,9 @@ def create_session_record(
                     project_id,
                     access_key_id,
                     psycopg2.extras.Json(task_config),
+                    psycopg2.extras.Json(runtime_state)
+                    if runtime_state is not None
+                    else None,
                 ),
             )
             row = cur.fetchone()
@@ -100,6 +105,7 @@ def get_session_with_project_and_key(session_id: str) -> dict[str, Any] | None:
             s.project_id,
             s.access_key_id,
             s.task_config,
+            s.runtime_state,
             s.summary,
             s.created_at AS session_created_at,
             s.updated_at AS session_updated_at,
@@ -127,21 +133,41 @@ def get_session_with_project_and_key(session_id: str) -> dict[str, Any] | None:
             return dict(row) if row else None
 
 
-def add_message(
+def create_turn(
     session_id: str,
-    role: str,
-    text: str,
-    structured_output: dict[str, Any] | None = None,
+    interaction_mode: str = "free",
+    status: str = "processing",
+    previous_step: dict[str, Any] | None = None,
+    current_step: dict[str, Any] | None = None,
+    next_step: dict[str, Any] | None = None,
+    prompt_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     sql = """
-        INSERT INTO messages (
+        INSERT INTO turns (
             session_id,
-            role,
-            text,
-            structured_output
+            interaction_mode,
+            status,
+            previous_step,
+            current_step,
+            next_step,
+            prompt_metadata,
+            started_at
         )
-        VALUES (%s, %s, %s, %s)
-        RETURNING id, session_id, role, text, structured_output, created_at;
+        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        RETURNING
+            id,
+            session_id,
+            interaction_mode,
+            status,
+            previous_step,
+            current_step,
+            next_step,
+            structured_output,
+            prompt_metadata,
+            usage,
+            created_at,
+            started_at,
+            completed_at;
     """
 
     with get_connection() as conn:
@@ -150,11 +176,107 @@ def add_message(
                 sql,
                 (
                     session_id,
-                    role,
-                    text,
+                    interaction_mode,
+                    status,
+                    psycopg2.extras.Json(previous_step)
+                    if previous_step is not None
+                    else None,
+                    psycopg2.extras.Json(current_step)
+                    if current_step is not None
+                    else None,
+                    psycopg2.extras.Json(next_step)
+                    if next_step is not None
+                    else None,
+                    psycopg2.extras.Json(prompt_metadata)
+                    if prompt_metadata is not None
+                    else None,
+                ),
+            )
+            row = cur.fetchone()
+            return dict(row)
+
+
+def update_turn(
+    turn_id: str,
+    status: str,
+    structured_output: dict[str, Any] | None = None,
+    prompt_metadata: dict[str, Any] | None = None,
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    sql = """
+        UPDATE turns
+        SET status = %s,
+            structured_output = %s,
+            prompt_metadata = COALESCE(%s, prompt_metadata),
+            usage = %s,
+            completed_at = CASE
+                WHEN %s IN ('completed', 'cancelled', 'failed') THEN NOW()
+                ELSE completed_at
+            END
+        WHERE id = %s
+        RETURNING
+            id,
+            session_id,
+            interaction_mode,
+            status,
+            previous_step,
+            current_step,
+            next_step,
+            structured_output,
+            prompt_metadata,
+            usage,
+            created_at,
+            started_at,
+            completed_at;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    status,
                     psycopg2.extras.Json(structured_output)
                     if structured_output is not None
                     else None,
+                    psycopg2.extras.Json(prompt_metadata)
+                    if prompt_metadata is not None
+                    else None,
+                    psycopg2.extras.Json(usage) if usage is not None else None,
+                    status,
+                    turn_id,
+                ),
+            )
+            row = cur.fetchone()
+            return dict(row)
+
+
+def add_message(
+    turn_id: str,
+    role: str,
+    text: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    sql = """
+        INSERT INTO messages (
+            turn_id,
+            role,
+            text,
+            metadata
+        )
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, turn_id, role, text, metadata, created_at;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    turn_id,
+                    role,
+                    text,
+                    psycopg2.extras.Json(metadata) if metadata is not None else None,
                 ),
             )
             row = cur.fetchone()
@@ -164,15 +286,44 @@ def add_message(
 def get_session_messages(session_id: str) -> list[dict[str, Any]]:
     sql = """
         SELECT
+            m.id,
+            m.turn_id,
+            m.role,
+            m.text,
+            m.metadata,
+            m.created_at
+        FROM messages m
+        JOIN turns t ON m.turn_id = t.id
+        WHERE t.session_id = %s
+        ORDER BY m.created_at ASC, m.id ASC;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (session_id,))
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]
+
+
+def get_session_turns(session_id: str) -> list[dict[str, Any]]:
+    sql = """
+        SELECT
             id,
             session_id,
-            role,
-            text,
+            interaction_mode,
+            status,
+            previous_step,
+            current_step,
+            next_step,
             structured_output,
-            created_at
-        FROM messages
+            prompt_metadata,
+            usage,
+            created_at,
+            started_at,
+            completed_at
+        FROM turns
         WHERE session_id = %s
-        ORDER BY created_at ASC;
+        ORDER BY created_at ASC, id ASC;
     """
 
     with get_connection() as conn:
@@ -226,6 +377,33 @@ def update_session_summary(
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, (summary, session_id))
+            row = cur.fetchone()
+            return dict(row)
+
+
+def update_session_runtime_state(
+    session_id: str,
+    runtime_state: dict[str, Any] | None,
+) -> dict[str, Any]:
+    sql = """
+        UPDATE sessions
+        SET runtime_state = %s,
+            updated_at = NOW()
+        WHERE id = %s
+        RETURNING id, runtime_state, updated_at;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    psycopg2.extras.Json(runtime_state)
+                    if runtime_state is not None
+                    else None,
+                    session_id,
+                ),
+            )
             row = cur.fetchone()
             return dict(row)
 

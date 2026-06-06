@@ -26,22 +26,43 @@ CREATE TABLE IF NOT EXISTS sessions (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     access_key_id UUID NOT NULL REFERENCES access_keys(id) ON DELETE RESTRICT,
     task_config JSONB,
+    runtime_state JSONB,
     summary TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS messages (
+CREATE TABLE IF NOT EXISTS turns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    interaction_mode TEXT NOT NULL DEFAULT 'free',
+    status TEXT NOT NULL DEFAULT 'pending',
+    previous_step JSONB,
+    current_step JSONB,
+    next_step JSONB,
+    structured_output JSONB,
+    prompt_metadata JSONB,
+    usage JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    turn_id UUID NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     text TEXT NOT NULL,
-    structured_output JSONB,
+    metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_access_keys_project_id ON access_keys(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_access_key_id ON sessions(access_key_id);
-CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_turns_session_id ON turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_turns_interaction_mode ON turns(interaction_mode);
+CREATE INDEX IF NOT EXISTS idx_turns_status ON turns(status);
+CREATE INDEX IF NOT EXISTS idx_turns_created_at ON turns(created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
