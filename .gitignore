@@ -15,6 +15,9 @@ venv/
 .DS_Store
 **/.DS_Store
 
+# VS Code
+.vscode/
+
 # Node / frontend
 node_modules/
 dist/
