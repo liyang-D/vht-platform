@@ -73,6 +73,12 @@ Useful `psql` commands:
 \dt
 ```
 
+Dev also starts Adminer at `http://localhost:8080` by default. Login with:
+
+- System: `PostgreSQL`
+- Server: `postgres`
+- Username/password/database: values from `infra/env/dev.env`
+
 ## Manage Projects And Keys
 
 Run platform-core commands through the `migrate` image:

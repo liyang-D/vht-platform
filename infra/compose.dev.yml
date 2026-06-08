@@ -14,3 +14,11 @@ services:
   simple-chat-frontend:
     ports:
       - "${SIMPLE_CHAT_FRONTEND_PORT:-5173}:80"
+
+  adminer:
+    image: adminer:5-standalone
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
