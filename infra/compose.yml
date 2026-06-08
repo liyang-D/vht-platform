@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vht_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-vht_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: platform_core/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
+      DEFAULT_PROJECT_NAME: ${DEFAULT_PROJECT_NAME:-Mini Project Template}
+      SIMPLE_CHAT_ACCESS_KEY: ${SIMPLE_CHAT_ACCESS_KEY:-dev-template-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m platform_core.database.init_db
+    restart: "no"
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: services/orchestrator/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-nano}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      DEEPGRAM_ASR_MODEL: ${DEEPGRAM_ASR_MODEL:-nova-3}
+      DEEPGRAM_TTS_MODEL: ${DEEPGRAM_TTS_MODEL:-aura-2-thalia-en}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+
+  simple-chat-backend:
+    build:
+      context: ..
+      dockerfile: apps/simple-chat/backend/Dockerfile
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8000
+      SIMPLE_CHAT_ACCESS_KEY: ${SIMPLE_CHAT_ACCESS_KEY:-dev-template-key}
+      SIMPLE_CHAT_CORS_ALLOW_ORIGINS: ${SIMPLE_CHAT_CORS_ALLOW_ORIGINS:-}
+      SIMPLE_CHAT_COOKIE_SECURE: ${SIMPLE_CHAT_COOKIE_SECURE:-false}
+    depends_on:
+      orchestrator:
+        condition: service_started
+    expose:
+      - "8010"
+
+  simple-chat-frontend:
+    build:
+      context: ..
+      dockerfile: apps/simple-chat/frontend/Dockerfile
+    environment:
+      BACKEND_UPSTREAM: http://simple-chat-backend:8010
+    depends_on:
+      simple-chat-backend:
+        condition: service_started
+
+volumes:
+  postgres_data:

@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from fastapi import Cookie, FastAPI, File, HTTPException, Response, UploadFile
@@ -9,15 +10,38 @@ import orchestrator_client
 
 
 SESSION_COOKIE_NAME = "simple_chat_session_id"
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
+def get_cors_origins() -> list[str]:
+    raw_origins = os.getenv("SIMPLE_CHAT_CORS_ALLOW_ORIGINS", "")
+
+    if not raw_origins.strip():
+        return DEFAULT_CORS_ORIGINS
+
+    return [
+        origin.strip()
+        for origin in raw_origins.split(",")
+        if origin.strip()
+    ]
+
+
+def cookie_secure() -> bool:
+    return os.getenv("SIMPLE_CHAT_COOKIE_SECURE", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 app = FastAPI(title="Simple Chat Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,7 +70,7 @@ def set_session_cookie(response: Response, session_id: str) -> None:
         value=session_id,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=cookie_secure(),
         max_age=60 * 60 * 24 * 7,
     )
 
@@ -56,7 +80,7 @@ def clear_session_cookie(response: Response) -> None:
         key=SESSION_COOKIE_NAME,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=cookie_secure(),
     )
 
 

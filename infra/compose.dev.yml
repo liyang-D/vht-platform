@@ -1,0 +1,16 @@
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  orchestrator:
+    ports:
+      - "${ORCHESTRATOR_PORT:-8000}:8000"
+
+  simple-chat-backend:
+    ports:
+      - "${SIMPLE_CHAT_BACKEND_PORT:-8010}:8010"
+
+  simple-chat-frontend:
+    ports:
+      - "${SIMPLE_CHAT_FRONTEND_PORT:-5173}:80"

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  orchestrator:
+    restart: unless-stopped
+
+  simple-chat-backend:
+    restart: unless-stopped
+
+  simple-chat-frontend:
+    ports:
+      - "${SIMPLE_CHAT_FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
