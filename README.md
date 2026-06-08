@@ -42,6 +42,15 @@ Production-like:
 docker compose --env-file infra/env/prod.env -p vht-prod -f infra/compose.yml -f infra/compose.prod.yml up -d --build
 ```
 
+## Deployment Rule
+
+- Develop on feature/test branches.
+- Merge only verified changes into `main`.
+- Build prod only from a clean `main` commit or a release tag.
+- Before prod rebuilds, check `git status` and the current commit/tag.
+- Running containers do not change when branches change; prod changes only after
+  an explicit `docker compose ... up -d --build`.
+
 The first start creates the configured Postgres database/user and then runs
 `platform_core.database.init_db`. Data persists in the Compose project volume
 (`vht-dev_postgres_data` or `vht-prod_postgres_data`) until that volume is
