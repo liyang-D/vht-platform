@@ -73,6 +73,21 @@ Useful `psql` commands:
 \dt
 ```
 
+## Manage Projects And Keys
+
+Run platform-core commands through the `migrate` image:
+
+```bash
+docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml run --rm migrate python -m platform_core.cli projects list
+docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml run --rm migrate python -m platform_core.cli keys list
+docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml run --rm migrate python -m platform_core.cli keys list --project "Mini Project Template"
+docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml run --rm migrate python -m platform_core.cli keys create --project "Hospital A Study"
+docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml run --rm migrate python -m platform_core.cli keys delete <key-value-or-id>
+```
+
+`keys delete` deactivates by default. Add `--hard` only when the key has no
+session history and should be physically removed.
+
 ## Notes
 
 - Do not commit real env files, API keys, database data, or model weights.
