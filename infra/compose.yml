@@ -33,14 +33,49 @@ services:
       dockerfile: services/orchestrator/Dockerfile
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-nano}
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL:-http://llm:8000/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-EMPTY}
+      LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-30B-A3B}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       DEEPGRAM_ASR_MODEL: ${DEEPGRAM_ASR_MODEL:-nova-3}
       DEEPGRAM_TTS_MODEL: ${DEEPGRAM_TTS_MODEL:-aura-2-thalia-en}
     depends_on:
       migrate:
         condition: service_completed_successfully
+      llm:
+        condition: service_started
+    expose:
+      - "8000"
+
+  llm:
+    image: vllm/vllm-openai:latest
+    gpus: all
+    ipc: host
+    shm_size: "16gb"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ../services/runtime/vllm/loras:/models/loras:ro
+    command:
+      - --model
+      - ${LLM_MODEL:-Qwen/Qwen3-30B-A3B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --enable-lora
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\"",
+        ]
+      start_period: 30m
+      interval: 30s
+      timeout: 5s
+      retries: 20
     expose:
       - "8000"
 
@@ -71,3 +106,4 @@ services:
 
 volumes:
   postgres_data:
+  huggingface_cache:

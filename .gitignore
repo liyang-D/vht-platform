@@ -60,6 +60,8 @@ storage/
 tmp/
 *.sqlite
 *.sqlite3
+services/runtime/vllm/loras/*
+!services/runtime/vllm/loras/.gitkeep
 
 # Docker override files with local secrets/ports
 compose.override.yml

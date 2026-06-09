@@ -245,7 +245,7 @@ def create_new_session(
     prompt_metadata = TurnPromptMetadata(
         response_modality=response_modality,
         prompt_template="opening.v1",
-        model=clients.OPENAI_MODEL,
+        model=clients.LLM_MODEL,
     ).model_dump(mode="json", exclude_none=True)
     turn_record = db.create_turn(
         session_id=str(session_record["id"]),
@@ -636,7 +636,7 @@ def handle_user_message(
         prompt_template="structured.v1"
         if interaction_mode == "structured"
         else "free.v1",
-        model=clients.OPENAI_MODEL,
+        model=clients.LLM_MODEL,
     ).model_dump(mode="json", exclude_none=True)
     turn_record = db.create_turn(
         session_id=session_id,

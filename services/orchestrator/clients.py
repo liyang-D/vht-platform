@@ -20,20 +20,22 @@ def load_project_env() -> None:
 
 load_project_env()
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-nano")
+LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "http://llm:8000/v1")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "EMPTY")
+LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-30B-A3B")
 DEEPGRAM_API_BASE_URL = "https://api.deepgram.com/v1"
 DEEPGRAM_ASR_MODEL = os.getenv("DEEPGRAM_ASR_MODEL", "nova-3")
 DEEPGRAM_TTS_MODEL = os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-thalia-en")
 DEEPGRAM_TTS_MIME_TYPE = "audio/wav"
 
 
-def get_openai_client() -> OpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
+def get_llm_client() -> OpenAI:
+    api_key = LLM_API_KEY
 
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set in .env")
+        raise RuntimeError("LLM_API_KEY is not set in .env")
 
-    return OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key, base_url=LLM_API_BASE_URL)
 
 
 def get_deepgram_api_key() -> str:
@@ -56,7 +58,13 @@ def extract_usage(response: Any) -> dict[str, Any]:
         }
 
     input_tokens = getattr(usage, "input_tokens", None)
+    if input_tokens is None:
+        input_tokens = getattr(usage, "prompt_tokens", None)
+
     output_tokens = getattr(usage, "output_tokens", None)
+    if output_tokens is None:
+        output_tokens = getattr(usage, "completion_tokens", None)
+
     total_tokens = getattr(usage, "total_tokens", None)
 
     if total_tokens is None:
@@ -70,14 +78,19 @@ def extract_usage(response: Any) -> dict[str, Any]:
 
 
 def call_llm(prompt: str) -> tuple[str, dict[str, Any]]:
-    client = get_openai_client()
+    client = get_llm_client()
 
-    response = client.responses.create(
-        model=OPENAI_MODEL,
-        input=prompt,
+    response = client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
     )
 
-    text = response.output_text
+    text = response.choices[0].message.content or ""
     usage = extract_usage(response)
 
     return text, usage

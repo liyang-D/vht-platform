@@ -5,6 +5,9 @@ services:
   orchestrator:
     restart: unless-stopped
 
+  llm:
+    restart: unless-stopped
+
   simple-chat-backend:
     restart: unless-stopped
 

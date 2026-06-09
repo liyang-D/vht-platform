@@ -33,5 +33,7 @@ logs
 *.log
 storage
 tmp
+services/runtime/vllm/loras/*
+!services/runtime/vllm/loras/.gitkeep
 .vscode
 .idea

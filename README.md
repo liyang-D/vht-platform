@@ -8,6 +8,7 @@ runtime contracts are clear.
 
 - `postgres`: persistent platform database, backed by a Docker named volume.
 - `migrate`: one-shot platform-core database bootstrap/migration container.
+- `llm`: local OpenAI-compatible vLLM runtime, defaulting to `Qwen/Qwen3-30B-A3B`.
 - `orchestrator`: internal API used by apps.
 - `apps/simple-chat/backend`: internal use-case API.
 - `apps/simple-chat/frontend`: public frontend; proxies `/api` to its backend.
@@ -27,6 +28,8 @@ cp infra/env/prod.example.env infra/env/prod.env
 Real `infra/env/*.env` files are ignored by git. Dev and prod use the same
 Compose files and Dockerfiles, but different project names, env files, ports,
 secrets, and Postgres volumes.
+Set `HF_TOKEN` in the selected env file so the local vLLM runtime can download
+models from Hugging Face; the orchestrator talks to it through `LLM_API_BASE_URL`.
 
 ## Start
 
@@ -36,10 +39,22 @@ Development:
 docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml up --build
 ```
 
+Development, using existing images:
+
+```bash
+docker compose --env-file infra/env/dev.env -p vht-dev -f infra/compose.yml -f infra/compose.dev.yml up
+```
+
 Production-like:
 
 ```bash
 docker compose --env-file infra/env/prod.env -p vht-prod -f infra/compose.yml -f infra/compose.prod.yml up -d --build
+```
+
+Production-like, using existing images:
+
+```bash
+docker compose --env-file infra/env/prod.env -p vht-prod -f infra/compose.yml -f infra/compose.prod.yml up -d
 ```
 
 ## Deployment Rule
@@ -97,6 +112,8 @@ session history and should be physically removed.
 ## Notes
 
 - Do not commit real env files, API keys, database data, or model weights.
+- Keep LoRA adapters under `services/runtime/vllm/loras`; that directory is
+  mounted into the local LLM runtime and ignored by git.
 - Add a `Dockerfile` and service-local dependency file for each new completed
   runtime/app backend.
 - Keep service calls configurable through env vars; inside Compose, use service
