@@ -43,7 +43,7 @@ services:
       migrate:
         condition: service_completed_successfully
       llm:
-        condition: service_started
+        condition: service_healthy
     expose:
       - "8000"
 
