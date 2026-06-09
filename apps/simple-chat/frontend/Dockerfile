@@ -10,7 +10,8 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 
-ENV BACKEND_UPSTREAM=http://simple-chat-backend:8010
+ENV BACKEND_UPSTREAM=http://simple-chat-backend:8010 \
+    BACKEND_PROXY_TIMEOUT=300s
 
 COPY apps/simple-chat/frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html

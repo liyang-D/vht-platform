@@ -42,8 +42,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      llm:
-        condition: service_healthy
+      llm-warmup:
+        condition: service_completed_successfully
     expose:
       - "8000"
 
@@ -65,6 +65,7 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
+      - --enforce-eager
       - --enable-lora
     healthcheck:
       test:
@@ -72,12 +73,32 @@ services:
           "CMD-SHELL",
           "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\"",
         ]
-      start_period: 30m
+      start_period: 2h
       interval: 30s
       timeout: 5s
       retries: 20
     expose:
       - "8000"
+
+  llm-warmup:
+    image: curlimages/curl:8.16.0
+    environment:
+      LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-30B-A3B}
+    depends_on:
+      llm:
+        condition: service_healthy
+    command:
+      [
+        "-fsS",
+        "-X",
+        "POST",
+        "http://llm:8000/v1/chat/completions",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        "{\"model\":\"${LLM_MODEL:-Qwen/Qwen3-30B-A3B}\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":8}",
+      ]
+    restart: "no"
 
   simple-chat-backend:
     build:
@@ -88,6 +109,7 @@ services:
       SIMPLE_CHAT_ACCESS_KEY: ${SIMPLE_CHAT_ACCESS_KEY:-dev-template-key}
       SIMPLE_CHAT_CORS_ALLOW_ORIGINS: ${SIMPLE_CHAT_CORS_ALLOW_ORIGINS:-}
       SIMPLE_CHAT_COOKIE_SECURE: ${SIMPLE_CHAT_COOKIE_SECURE:-false}
+      SIMPLE_CHAT_ORCHESTRATOR_TIMEOUT_SECONDS: ${SIMPLE_CHAT_ORCHESTRATOR_TIMEOUT_SECONDS:-300}
     depends_on:
       orchestrator:
         condition: service_started
@@ -100,6 +122,7 @@ services:
       dockerfile: apps/simple-chat/frontend/Dockerfile
     environment:
       BACKEND_UPSTREAM: http://simple-chat-backend:8010
+      BACKEND_PROXY_TIMEOUT: ${BACKEND_PROXY_TIMEOUT:-300s}
     depends_on:
       simple-chat-backend:
         condition: service_started

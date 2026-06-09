@@ -42,16 +42,27 @@ type EndSessionResponse = {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const THINK_BLOCK_PATTERN = /<think\b[^>]*>[\s\S]*?<\/think>/gi
 
 function messageId() {
-  return crypto.randomUUID()
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function displayAssistantText(text: string) {
+  return text.replace(THINK_BLOCK_PATTERN, '').trim()
 }
 
 function toChatMessage(message: StoredSessionMessage): ChatMessage {
+  const isUser = message.role === 'user'
+
   return {
     id: message.id,
-    role: message.role === 'user' ? 'user' : 'assistant',
-    text: message.text,
+    role: isUser ? 'user' : 'assistant',
+    text: isUser ? message.text : displayAssistantText(message.text),
   }
 }
 
@@ -268,7 +279,7 @@ function App() {
         {
           id: messageId(),
           role: 'assistant',
-          text: payload.opening_message,
+          text: displayAssistantText(payload.opening_message),
         },
       ])
       setStatus('Ready')
@@ -357,7 +368,7 @@ function App() {
         {
           id: messageId(),
           role: 'assistant',
-          text: payload.text,
+          text: displayAssistantText(payload.text),
         },
       ])
       setStatus('Ready')
@@ -498,7 +509,7 @@ function App() {
         {
           id: messageId(),
           role: 'assistant',
-          text: payload.text,
+          text: displayAssistantText(payload.text),
         },
       ])
 

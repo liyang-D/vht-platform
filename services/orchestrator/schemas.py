@@ -1,4 +1,5 @@
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,11 +20,16 @@ class TaskConfig(BaseModel):
     structured_output_schema: dict[str, Any] | None = None
 
 
+class LLMOptions(BaseModel):
+    thinking_mode: Literal["default", "think", "no_think"] = "default"
+
+
 class CreateSessionRequest(BaseModel):
     access_key: str
     task_config: TaskConfig = Field(default_factory=TaskConfig)
     response_modality: ResponseModality = "text"
     runtime_state: RuntimeState | None = None
+    llm_options: LLMOptions = Field(default_factory=LLMOptions)
 
 
 class CreateSessionResponse(BaseModel):
@@ -44,6 +50,7 @@ class SendMessageRequest(BaseModel):
     previous_step: StructuredStep | None = None
     current_step: StructuredStep | None = None
     next_step: StructuredStep | None = None
+    llm_options: LLMOptions = Field(default_factory=LLMOptions)
 
 
 class SendMessageResponse(BaseModel):

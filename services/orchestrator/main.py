@@ -35,6 +35,7 @@ def create_session(request: CreateSessionRequest):
             task_config=request.task_config,
             response_modality=request.response_modality,
             runtime_state=request.runtime_state,
+            llm_options=request.llm_options,
         )
     
     except session.AccessDeniedError as e:
@@ -79,6 +80,7 @@ def send_message(session_id: str, request: SendMessageRequest):
             previous_step=request.previous_step,
             current_step=request.current_step,
             next_step=request.next_step,
+            llm_options=request.llm_options,
         )
 
     except session.NotFoundError as e:

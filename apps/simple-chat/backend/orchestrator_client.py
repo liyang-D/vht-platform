@@ -9,6 +9,9 @@ load_dotenv()
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://127.0.0.1:8000")
 ACCESS_KEY = os.getenv("SIMPLE_CHAT_ACCESS_KEY", "dev-template-key")
+ORCHESTRATOR_TIMEOUT_SECONDS = float(
+    os.getenv("SIMPLE_CHAT_ORCHESTRATOR_TIMEOUT_SECONDS", "300")
+)
 
 
 class OrchestratorClientError(RuntimeError):
@@ -34,14 +37,16 @@ def _raise_for_error(response: httpx.Response) -> None:
 async def create_session(
     task_config: dict[str, Any],
     response_modality: str = "text",
+    llm_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
             f"{ORCHESTRATOR_URL}/sessions",
             json={
                 "access_key": ACCESS_KEY,
                 "task_config": task_config,
                 "response_modality": response_modality,
+                "llm_options": llm_options or {},
             },
         )
 
@@ -50,7 +55,7 @@ async def create_session(
 
 
 async def get_session(session_id: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.get(f"{ORCHESTRATOR_URL}/sessions/{session_id}")
 
     _raise_for_error(response)
@@ -61,13 +66,15 @@ async def send_message(
     session_id: str,
     text: str,
     response_modality: str = "text",
+    llm_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
             f"{ORCHESTRATOR_URL}/sessions/{session_id}/messages",
             json={
                 "text": text,
                 "response_modality": response_modality,
+                "llm_options": llm_options or {},
             },
         )
 
@@ -81,7 +88,7 @@ async def transcribe_audio_message(
     filename: str,
     mime_type: str,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
             f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-transcriptions",
             files={
@@ -103,7 +110,7 @@ async def send_audio_message(
     filename: str,
     mime_type: str,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
             f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-messages",
             files={
@@ -120,7 +127,7 @@ async def send_audio_message(
 
 
 async def end_session(session_id: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(f"{ORCHESTRATOR_URL}/sessions/{session_id}/end")
 
     _raise_for_error(response)
