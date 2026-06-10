@@ -29,6 +29,19 @@ class QuotaExceededError(OrchestratorError):
     pass
 
 
+DEFAULT_PROJECT_PRIORITY = 30
+REQUEST_TYPE_PRIORITIES = {
+    "message.free.voice": 0,
+    "message.free.text": 5,
+    "opening": 10,
+    "message.structured.voice": 10,
+    "message.structured.text": 15,
+    "summary": 60,
+    "audio.transcription": 80,
+}
+DEFAULT_REQUEST_TYPE_PRIORITY = 100
+
+
 def validate_task_config(task_config: TaskConfig) -> None:
     if task_config.requires_structured_output and not task_config.structured_output_schema:
         raise OrchestratorError(
@@ -88,6 +101,70 @@ def check_quota(quota: int | None, usage_count: int) -> bool:
         return True
 
     return usage_count < quota
+
+
+def get_project_priority(record: dict[str, Any]) -> int:
+    priority = record.get("project_priority")
+
+    if priority is None:
+        return DEFAULT_PROJECT_PRIORITY
+
+    return int(priority)
+
+
+def get_request_type_priority(request_type: str) -> int:
+    return REQUEST_TYPE_PRIORITIES.get(
+        request_type,
+        DEFAULT_REQUEST_TYPE_PRIORITY,
+    )
+
+
+def build_llm_priority_metadata(
+    record: dict[str, Any],
+    request_type: str,
+) -> dict[str, Any]:
+    project_priority = get_project_priority(record)
+    request_type_priority = get_request_type_priority(request_type)
+
+    return {
+        "project_priority": project_priority,
+        "request_type": request_type,
+        "request_type_priority": request_type_priority,
+        "effective_priority": project_priority + request_type_priority,
+    }
+
+
+def get_message_request_type(
+    interaction_mode: str,
+    response_modality: str,
+) -> str:
+    modality = "voice" if response_modality == "voice" else "text"
+
+    if interaction_mode == "structured":
+        return f"message.structured.{modality}"
+
+    return f"message.free.{modality}"
+
+
+def write_audit_event(
+    record: dict[str, Any],
+    event_type: str,
+    event_status: str = "completed",
+    session_id: str | None = None,
+    turn_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    db.create_audit_event(
+        project_id=str(record["project_id"]),
+        access_key_id=str(record["access_key_id"]),
+        session_id=session_id,
+        turn_id=turn_id,
+        actor_type="access_key",
+        actor_id=str(record["access_key_id"]),
+        event_type=event_type,
+        event_status=event_status,
+        metadata=metadata,
+    )
 
 
 def validate_access_record(record: dict[str, Any] | None) -> None:
@@ -242,11 +319,13 @@ def create_new_session(
 
     task_config_dict = task_config.model_dump()
     opening_prompt = build_opening_prompt(task_config_dict, response_modality)
+    llm_priority = build_llm_priority_metadata(access_record, "opening")
     prompt_metadata = TurnPromptMetadata(
         response_modality=response_modality,
         prompt_template="opening.v1",
         model=clients.LLM_MODEL,
     ).model_dump(mode="json", exclude_none=True)
+    prompt_metadata["scheduling"] = llm_priority
     turn_record = db.create_turn(
         session_id=str(session_record["id"]),
         interaction_mode="opening",
@@ -254,7 +333,10 @@ def create_new_session(
         prompt_metadata=prompt_metadata,
     )
 
-    raw_llm_text, usage = clients.call_llm(opening_prompt)
+    raw_llm_text, usage = clients.call_llm(
+        opening_prompt,
+        priority=llm_priority["effective_priority"],
+    )
     opening_text, structured_output = parse_llm_output(raw_llm_text, task_config_dict)
 
     db.add_message(
@@ -296,6 +378,21 @@ def create_new_session(
         structured_output=structured_output,
         prompt_metadata=prompt_metadata,
         usage=usage,
+    )
+
+    write_audit_event(
+        record=access_record,
+        event_type="session.created",
+        session_id=str(session_record["id"]),
+        turn_id=str(turn_record["id"]),
+        metadata={
+            "request_type": "opening",
+            "response_modality": response_modality,
+            "model": clients.LLM_MODEL,
+            "scheduling": llm_priority,
+            "usage": usage,
+            "audio_generated": bool(payload.get("audio_base64")),
+        },
     )
 
     return payload
@@ -631,6 +728,11 @@ def handle_user_message(
                 "current_step is required for structured interaction mode."
             )
 
+    request_type = get_message_request_type(
+        interaction_mode=interaction_mode,
+        response_modality=response_modality,
+    )
+    llm_priority = build_llm_priority_metadata(session_record, request_type)
     prompt_metadata = TurnPromptMetadata(
         response_modality=response_modality,
         prompt_template="structured.v1"
@@ -638,6 +740,7 @@ def handle_user_message(
         else "free.v1",
         model=clients.LLM_MODEL,
     ).model_dump(mode="json", exclude_none=True)
+    prompt_metadata["scheduling"] = llm_priority
     turn_record = db.create_turn(
         session_id=session_id,
         interaction_mode=interaction_mode,
@@ -694,6 +797,22 @@ def handle_user_message(
                 next_step=next_payload,
             ),
         )
+        write_audit_event(
+            record=session_record,
+            event_type="message.completed",
+            session_id=session_id,
+            turn_id=turn_id,
+            metadata={
+                "request_type": request_type,
+                "response_modality": response_modality,
+                "interaction_mode": interaction_mode,
+                "model": clients.LLM_MODEL,
+                "scheduling": llm_priority,
+                "usage": usage,
+                "safety_blocked": True,
+                "safety_reason": safety_result.reason,
+            },
+        )
 
         return {
             "session_id": session_id,
@@ -733,7 +852,10 @@ def handle_user_message(
         )
         requires_output = task_config.get("requires_structured_output", False)
 
-    raw_llm_text, usage = clients.call_llm(prompt)
+    raw_llm_text, usage = clients.call_llm(
+        prompt,
+        priority=llm_priority["effective_priority"],
+    )
     if interaction_mode == "structured":
         avatar_text, structured_output = parse_structured_llm_output(
             raw_text=raw_llm_text,
@@ -792,6 +914,22 @@ def handle_user_message(
         prompt_metadata=prompt_metadata,
         usage=usage,
     )
+    write_audit_event(
+        record=session_record,
+        event_type="message.completed",
+        session_id=session_id,
+        turn_id=turn_id,
+        metadata={
+            "request_type": request_type,
+            "response_modality": response_modality,
+            "interaction_mode": interaction_mode,
+            "model": clients.LLM_MODEL,
+            "scheduling": llm_priority,
+            "usage": usage,
+            "audio_generated": bool(payload.get("audio_base64")),
+            "has_structured_output": structured_output is not None,
+        },
+    )
 
     return payload
 
@@ -811,6 +949,17 @@ def transcribe_user_audio_message(
 
     if not transcript:
         raise OrchestratorError("No speech was detected in the audio.")
+
+    write_audit_event(
+        record=session_record,
+        event_type="audio.transcribed",
+        session_id=session_id,
+        metadata={
+            "request_type": "audio.transcription",
+            "mime_type": mime_type,
+            "usage": transcription_usage,
+        },
+    )
 
     return {
         "session_id": session_id,
@@ -926,8 +1075,12 @@ def summary_has_substantive_text(summary: str) -> bool:
 
 def summarise_session_with_quality_gate(
     conversation_text: str,
+    priority: int,
 ) -> tuple[str, dict[str, Any]]:
-    summary, usage = clients.summarise_session(conversation_text)
+    summary, usage = clients.summarise_session(
+        conversation_text,
+        priority=priority,
+    )
 
     if summary_has_substantive_text(summary):
         return summary, usage
@@ -948,9 +1101,18 @@ def end_existing_session(session_id: str) -> dict[str, Any]:
 
     if not messages:
         summary = "No messages were recorded in this session."
+        audit_metadata = {
+            "request_type": "summary",
+            "summary_generated": False,
+            "message_count": 0,
+        }
     else:
         conversation_text = build_conversation_text(messages)
-        summary, usage = summarise_session_with_quality_gate(conversation_text)
+        llm_priority = build_llm_priority_metadata(session_record, "summary")
+        summary, usage = summarise_session_with_quality_gate(
+            conversation_text,
+            priority=llm_priority["effective_priority"],
+        )
 
         usage_amount = usage.get("total_tokens") or 1
         db.increment_usage(
@@ -958,8 +1120,22 @@ def end_existing_session(session_id: str) -> dict[str, Any]:
             access_key_id=str(session_record["access_key_id"]),
             amount=int(usage_amount),
         )
+        audit_metadata = {
+            "request_type": "summary",
+            "summary_generated": True,
+            "message_count": len(messages),
+            "model": clients.LLM_MODEL,
+            "scheduling": llm_priority,
+            "usage": usage,
+        }
 
     db.update_session_summary(session_id, summary)
+    write_audit_event(
+        record=session_record,
+        event_type="summary.completed",
+        session_id=session_id,
+        metadata=audit_metadata,
+    )
 
     return {
         "session_id": session_id,

@@ -49,6 +49,7 @@ def get_access_key_with_project(key_value: str) -> dict[str, Any] | None:
             p.id AS project_id,
             p.name AS project_name,
             p.is_valid AS project_is_valid,
+            p.priority AS project_priority,
             p.quota AS project_quota,
             p.usage_count AS project_usage_count
         FROM access_keys ak
@@ -112,6 +113,7 @@ def get_session_with_project_and_key(session_id: str) -> dict[str, Any] | None:
 
             p.name AS project_name,
             p.is_valid AS project_is_valid,
+            p.priority AS project_priority,
             p.quota AS project_quota,
             p.usage_count AS project_usage_count,
 
@@ -276,6 +278,64 @@ def add_message(
                     turn_id,
                     role,
                     text,
+                    psycopg2.extras.Json(metadata) if metadata is not None else None,
+                ),
+            )
+            row = cur.fetchone()
+            return dict(row)
+
+
+def create_audit_event(
+    event_type: str,
+    event_status: str,
+    project_id: str | None = None,
+    access_key_id: str | None = None,
+    session_id: str | None = None,
+    turn_id: str | None = None,
+    actor_type: str | None = None,
+    actor_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    sql = """
+        INSERT INTO audit_events (
+            project_id,
+            access_key_id,
+            session_id,
+            turn_id,
+            actor_type,
+            actor_id,
+            event_type,
+            event_status,
+            metadata
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING
+            id,
+            project_id,
+            access_key_id,
+            session_id,
+            turn_id,
+            actor_type,
+            actor_id,
+            event_type,
+            event_status,
+            metadata,
+            created_at;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    project_id,
+                    access_key_id,
+                    session_id,
+                    turn_id,
+                    actor_type,
+                    actor_id,
+                    event_type,
+                    event_status,
                     psycopg2.extras.Json(metadata) if metadata is not None else None,
                 ),
             )

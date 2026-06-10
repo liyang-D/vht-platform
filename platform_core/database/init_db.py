@@ -29,12 +29,14 @@ def seed_defaults(cursor) -> None:
         INSERT INTO projects (
             name,
             is_valid,
+            priority,
             quota,
             usage_count
         )
         SELECT
             %s,
             TRUE,
+            30,
             NULL,
             0
         WHERE NOT EXISTS (

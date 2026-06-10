@@ -1,4 +1,8 @@
 import os
+import heapq
+import itertools
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +27,9 @@ load_project_env()
 LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "http://llm:8000/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "EMPTY")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS = int(
+    os.getenv("ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS", "4")
+)
 DEEPGRAM_API_BASE_URL = "https://api.deepgram.com/v1"
 DEEPGRAM_ASR_MODEL = os.getenv("DEEPGRAM_ASR_MODEL", "nova-3")
 DEEPGRAM_TTS_MODEL = os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-thalia-en")
@@ -36,6 +43,42 @@ def get_llm_client() -> OpenAI:
         raise RuntimeError("LLM_API_KEY is not set in .env")
 
     return OpenAI(api_key=api_key, base_url=LLM_API_BASE_URL)
+
+
+class LLMPriorityGate:
+    def __init__(self, max_concurrent_requests: int) -> None:
+        self.max_concurrent_requests = max(1, max_concurrent_requests)
+        self._condition = threading.Condition()
+        self._counter = itertools.count()
+        self._queue: list[tuple[int, int, object]] = []
+        self._active_requests = 0
+
+    @contextmanager
+    def acquire(self, priority: int):
+        ticket = object()
+        sequence = next(self._counter)
+
+        with self._condition:
+            heapq.heappush(self._queue, (priority, sequence, ticket))
+
+            while (
+                self._active_requests >= self.max_concurrent_requests
+                or self._queue[0][2] is not ticket
+            ):
+                self._condition.wait()
+
+            heapq.heappop(self._queue)
+            self._active_requests += 1
+
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._active_requests -= 1
+                self._condition.notify_all()
+
+
+LLM_PRIORITY_GATE = LLMPriorityGate(ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS)
 
 
 def get_deepgram_api_key() -> str:
@@ -77,18 +120,25 @@ def extract_usage(response: Any) -> dict[str, Any]:
     }
 
 
-def call_llm(prompt: str) -> tuple[str, dict[str, Any]]:
+def call_llm(
+    prompt: str,
+    priority: int = 100,
+) -> tuple[str, dict[str, Any]]:
     client = get_llm_client()
 
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-    )
+    with LLM_PRIORITY_GATE.acquire(priority):
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            extra_body={
+                "priority": priority,
+            },
+        )
 
     text = response.choices[0].message.content or ""
     usage = extract_usage(response)
@@ -96,7 +146,10 @@ def call_llm(prompt: str) -> tuple[str, dict[str, Any]]:
     return text, usage
 
 
-def summarise_session(conversation_text: str) -> tuple[str, dict[str, Any]]:
+def summarise_session(
+    conversation_text: str,
+    priority: int = 100,
+) -> tuple[str, dict[str, Any]]:
     prompt = f"""
 Summarise the following conversation clearly and concisely.
 
@@ -109,7 +162,7 @@ Conversation:
 {conversation_text}
 """.strip()
 
-    return call_llm(prompt)
+    return call_llm(prompt, priority=priority)
 
 
 def transcribe_audio(

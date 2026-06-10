@@ -13,8 +13,8 @@ runtime contracts are clear.
 - `apps/simple-chat/backend`: internal use-case API.
 - `apps/simple-chat/frontend`: public frontend; proxies `/api` to its backend.
 
-Only frontend ports are exposed in prod by default. Dev also exposes Postgres,
-orchestrator, and app backend for inspection.
+Only frontend ports are exposed in prod by default. Dev binds internal service
+ports to `127.0.0.1` for local inspection without exposing them to the LAN.
 
 ## Environments
 
@@ -30,6 +30,8 @@ Compose files and Dockerfiles, but different project names, env files, ports,
 secrets, and Postgres volumes.
 Set `HF_TOKEN` in the selected env file so the local vLLM runtime can download
 models from Hugging Face; the orchestrator talks to it through `LLM_API_BASE_URL`.
+Projects default to priority `30`; lower numbers are scheduled earlier, combined
+with the orchestrator's request-type priority before calling vLLM.
 
 ## Start
 

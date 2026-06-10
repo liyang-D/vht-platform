@@ -36,6 +36,7 @@ services:
       LLM_API_BASE_URL: ${LLM_API_BASE_URL:-http://llm:8000/v1}
       LLM_API_KEY: ${LLM_API_KEY:-EMPTY}
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
+      ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS:-4}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       DEEPGRAM_ASR_MODEL: ${DEEPGRAM_ASR_MODEL:-nova-3}
       DEEPGRAM_TTS_MODEL: ${DEEPGRAM_TTS_MODEL:-aura-2-thalia-en}
@@ -67,6 +68,8 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
+      - --scheduling-policy
+      - priority
       - --enable-lora
     healthcheck:
       test:
