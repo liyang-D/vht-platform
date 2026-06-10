@@ -22,7 +22,7 @@ load_project_env()
 
 LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "http://llm:8000/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "EMPTY")
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-30B-A3B")
+LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
 DEEPGRAM_API_BASE_URL = "https://api.deepgram.com/v1"
 DEEPGRAM_ASR_MODEL = os.getenv("DEEPGRAM_ASR_MODEL", "nova-3")
 DEEPGRAM_TTS_MODEL = os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-thalia-en")

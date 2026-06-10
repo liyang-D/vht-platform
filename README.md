@@ -8,7 +8,7 @@ runtime contracts are clear.
 
 - `postgres`: persistent platform database, backed by a Docker named volume.
 - `migrate`: one-shot platform-core database bootstrap/migration container.
-- `llm`: local OpenAI-compatible vLLM runtime, defaulting to `Qwen/Qwen3-30B-A3B`.
+- `llm`: local OpenAI-compatible vLLM runtime, defaulting to `Qwen/Qwen3-30B-A3B-Instruct-2507`.
 - `orchestrator`: internal API used by apps.
 - `apps/simple-chat/backend`: internal use-case API.
 - `apps/simple-chat/frontend`: public frontend; proxies `/api` to its backend.

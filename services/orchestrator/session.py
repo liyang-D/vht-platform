@@ -10,7 +10,7 @@ from shared.schemas import RuntimeState, StructuredStep, TurnPromptMetadata
 from . import clients
 from . import db
 from . import safety
-from .schemas import LLMOptions, TaskConfig
+from .schemas import TaskConfig
 
 
 class OrchestratorError(Exception):
@@ -144,30 +144,6 @@ def add_modality_instructions(parts: list[str], response_modality: str) -> None:
     )
 
 
-def add_llm_thinking_instruction(
-    parts: list[str],
-    llm_options: dict[str, Any] | None,
-) -> None:
-    thinking_mode = (llm_options or {}).get("thinking_mode", "default")
-
-    if thinking_mode == "think":
-        parts.extend(
-            [
-                "Model reasoning mode:",
-                "/think",
-                "",
-            ]
-        )
-    elif thinking_mode == "no_think":
-        parts.extend(
-            [
-                "Model reasoning mode:",
-                "/no_think",
-                "",
-            ]
-        )
-
-
 def add_response_audio(
     payload: dict[str, Any],
     text: str,
@@ -186,7 +162,6 @@ def add_response_audio(
 def build_opening_prompt(
     task_config: dict[str, Any],
     response_modality: str = "text",
-    llm_options: dict[str, Any] | None = None,
 ) -> str:
     role = task_config.get("role") or "You are a helpful avatar assistant."
     instructions = task_config.get("instructions") or "Answer clearly and naturally."
@@ -214,7 +189,6 @@ def build_opening_prompt(
     ]
 
     add_modality_instructions(parts, response_modality)
-    add_llm_thinking_instruction(parts, llm_options)
 
     if requires_structured_output:
         parts.extend(
@@ -244,7 +218,6 @@ def create_new_session(
     task_config: TaskConfig,
     response_modality: str = "text",
     runtime_state: RuntimeState | None = None,
-    llm_options: LLMOptions | None = None,
 ) -> dict[str, Any]:
     validate_task_config(task_config)
 
@@ -268,18 +241,12 @@ def create_new_session(
     )
 
     task_config_dict = task_config.model_dump()
-    llm_options_payload = dump_model(llm_options) or {}
-    opening_prompt = build_opening_prompt(
-        task_config_dict,
-        response_modality,
-        llm_options=llm_options_payload,
-    )
+    opening_prompt = build_opening_prompt(task_config_dict, response_modality)
     prompt_metadata = TurnPromptMetadata(
         response_modality=response_modality,
         prompt_template="opening.v1",
         model=clients.LLM_MODEL,
     ).model_dump(mode="json", exclude_none=True)
-    prompt_metadata["llm_options"] = llm_options_payload
     turn_record = db.create_turn(
         session_id=str(session_record["id"]),
         interaction_mode="opening",
@@ -352,7 +319,6 @@ def build_prompt(
     history: str,
     latest_user_text: str,
     response_modality: str = "text",
-    llm_options: dict[str, Any] | None = None,
 ) -> str:
     role = task_config.get("role") or "You are a helpful avatar assistant."
     instructions = task_config.get("instructions") or "Answer clearly and naturally."
@@ -376,7 +342,6 @@ def build_prompt(
     ]
 
     add_modality_instructions(parts, response_modality)
-    add_llm_thinking_instruction(parts, llm_options)
 
     if summary:
         parts.extend(
@@ -443,7 +408,6 @@ def build_structured_prompt(
     current_step: dict[str, Any] | None,
     next_step: dict[str, Any] | None,
     response_modality: str = "text",
-    llm_options: dict[str, Any] | None = None,
 ) -> str:
     role = task_config.get("role") or "You are a helpful avatar assistant."
     instructions = task_config.get("instructions") or "Answer clearly and naturally."
@@ -469,7 +433,6 @@ def build_structured_prompt(
     ]
 
     add_modality_instructions(parts, response_modality)
-    add_llm_thinking_instruction(parts, llm_options)
 
     if summary:
         parts.extend(["Existing session summary:", summary, ""])
@@ -647,7 +610,6 @@ def handle_user_message(
     previous_step: StructuredStep | None = None,
     current_step: StructuredStep | None = None,
     next_step: StructuredStep | None = None,
-    llm_options: LLMOptions | None = None,
 ) -> dict[str, Any]:
     session_record = db.get_session_with_project_and_key(session_id)
     validate_session_record(session_record)
@@ -656,7 +618,6 @@ def handle_user_message(
     previous_payload = None
     current_payload = None
     next_payload = None
-    llm_options_payload = dump_model(llm_options) or {}
 
     if interaction_mode == "structured":
         previous_payload, current_payload, next_payload = resolve_structured_steps(
@@ -677,7 +638,6 @@ def handle_user_message(
         else "free.v1",
         model=clients.LLM_MODEL,
     ).model_dump(mode="json", exclude_none=True)
-    prompt_metadata["llm_options"] = llm_options_payload
     turn_record = db.create_turn(
         session_id=session_id,
         interaction_mode=interaction_mode,
@@ -761,7 +721,6 @@ def handle_user_message(
             current_step=current_payload,
             next_step=next_payload,
             response_modality=response_modality,
-            llm_options=llm_options_payload,
         )
         requires_output = step_requires_structured_output(current_payload)
     else:
@@ -771,7 +730,6 @@ def handle_user_message(
             history=history,
             latest_user_text=user_text,
             response_modality=response_modality,
-            llm_options=llm_options_payload,
         )
         requires_output = task_config.get("requires_structured_output", False)
 
@@ -955,6 +913,31 @@ def build_conversation_text(messages: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def summary_has_substantive_text(summary: str) -> bool:
+    stripped = summary.strip()
+
+    if not stripped:
+        return False
+
+    substantive_chars = re.sub(r"\W+", "", stripped)
+
+    return len(substantive_chars) >= 10
+
+
+def summarise_session_with_quality_gate(
+    conversation_text: str,
+) -> tuple[str, dict[str, Any]]:
+    summary, usage = clients.summarise_session(conversation_text)
+
+    if summary_has_substantive_text(summary):
+        return summary, usage
+
+    return (
+        "The session ended, but a substantive summary could not be generated.",
+        usage,
+    )
+
+
 def end_existing_session(session_id: str) -> dict[str, Any]:
     session_record = db.get_session_with_project_and_key(session_id)
 
@@ -967,7 +950,7 @@ def end_existing_session(session_id: str) -> dict[str, Any]:
         summary = "No messages were recorded in this session."
     else:
         conversation_text = build_conversation_text(messages)
-        summary, usage = clients.summarise_session(conversation_text)
+        summary, usage = summarise_session_with_quality_gate(conversation_text)
 
         usage_amount = usage.get("total_tokens") or 1
         db.increment_usage(

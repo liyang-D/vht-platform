@@ -37,7 +37,6 @@ def _raise_for_error(response: httpx.Response) -> None:
 async def create_session(
     task_config: dict[str, Any],
     response_modality: str = "text",
-    llm_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -46,7 +45,6 @@ async def create_session(
                 "access_key": ACCESS_KEY,
                 "task_config": task_config,
                 "response_modality": response_modality,
-                "llm_options": llm_options or {},
             },
         )
 
@@ -66,7 +64,6 @@ async def send_message(
     session_id: str,
     text: str,
     response_modality: str = "text",
-    llm_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -74,7 +71,6 @@ async def send_message(
             json={
                 "text": text,
                 "response_modality": response_modality,
-                "llm_options": llm_options or {},
             },
         )
 

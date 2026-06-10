@@ -10,7 +10,6 @@ import orchestrator_client
 
 
 SESSION_COOKIE_NAME = "simple_chat_session_id"
-SIMPLE_CHAT_LLM_OPTIONS = {"thinking_mode": "no_think"}
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -107,7 +106,6 @@ async def create_session(request: CreateSessionRequest, response: Response):
         payload = await orchestrator_client.create_session(
             task_config=flow.build_chat_task_config(),
             response_modality=request.response_modality,
-            llm_options=SIMPLE_CHAT_LLM_OPTIONS,
         )
         set_session_cookie(response, payload["session_id"])
         return public_session_payload(payload)
@@ -140,7 +138,6 @@ async def send_message(
             session_id=session_id,
             text=request.text,
             response_modality=request.response_modality,
-            llm_options=SIMPLE_CHAT_LLM_OPTIONS,
         )
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:
