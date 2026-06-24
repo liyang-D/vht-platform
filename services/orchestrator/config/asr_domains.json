@@ -1,0 +1,31 @@
+{
+  "schema_version": "asr_domains.v1",
+  "default_domain": "default",
+  "domains": {
+    "default": {
+      "provider": "riva",
+      "model": "parakeet-1-1b-ctc-en-us",
+      "offline_http_url": "http://asr:9000",
+      "streaming_ws_url": "ws://asr:9000/v1/realtime?intent=transcription",
+      "supported_modes": ["offline", "streaming"],
+      "language": "en-US",
+      "enable_automatic_punctuation": true,
+      "default_boosted_words": [],
+      "boost_score": null,
+      "extra_form_data": {},
+      "artifacts": {
+        "root": "services/runtime/asr/domains/default",
+        "training_corpus": "services/runtime/asr/domains/default/corpus",
+        "normalized_corpus": "services/runtime/asr/domains/default/normalized",
+        "kenlm_arpa": "services/runtime/asr/domains/default/kenlm/domain.arpa",
+        "kenlm_binary": "services/runtime/asr/domains/default/kenlm/domain.binary",
+        "decoder_vocab": "services/runtime/asr/domains/default/decoder/vocab.txt",
+        "decoder_lexicon": "services/runtime/asr/domains/default/decoder/lexicon.txt",
+        "eval_report": "services/runtime/asr/domains/default/eval/eval_report.json",
+        "riva_model_repository": "services/runtime/asr/domains/default/riva/model_repository",
+        "riva_model_archive": "services/runtime/asr/domains/default/riva/custom_model.tar.gz",
+        "notes": "Template paths only. These files are absent until a custom ASR language model is trained and deployed."
+      }
+    }
+  }
+}

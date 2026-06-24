@@ -1,4 +1,6 @@
 import os
+import asyncio
+import base64
 from typing import Any
 
 import httpx
@@ -32,6 +34,59 @@ def _raise_for_error(response: httpx.Response) -> None:
         detail = response.text
 
     raise OrchestratorClientError(response.status_code, detail)
+
+
+def _post_multipart(
+    url: str,
+    data: list[tuple[str, str]],
+    audio_bytes: bytes,
+    filename: str,
+    mime_type: str,
+) -> httpx.Response:
+    with httpx.Client(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
+        return client.post(
+            url,
+            data=data,
+            files={
+                "audio": (
+                    filename,
+                    audio_bytes,
+                    mime_type or "application/octet-stream",
+                )
+            },
+        )
+
+
+def _post_audio_json(
+    url: str,
+    audio_bytes: bytes,
+    filename: str,
+    mime_type: str,
+    domain: str | None,
+    mode: str | None,
+    boosted_words: list[str] | None,
+    boost_score: float | None,
+) -> httpx.Response:
+    payload: dict[str, Any] = {
+        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+        "filename": filename,
+        "mime_type": mime_type or "application/octet-stream",
+    }
+
+    if domain:
+        payload["domain"] = domain
+
+    if mode:
+        payload["mode"] = mode
+
+    if boosted_words:
+        payload["boosted_words"] = boosted_words
+
+    if boost_score is not None:
+        payload["boost_score"] = boost_score
+
+    with httpx.Client(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
+        return client.post(url, json=payload)
 
 
 async def create_session(
@@ -83,18 +138,22 @@ async def transcribe_audio_message(
     audio_bytes: bytes,
     filename: str,
     mime_type: str,
+    domain: str | None = None,
+    mode: str | None = None,
+    boosted_words: list[str] | None = None,
+    boost_score: float | None = None,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
-        response = await client.post(
-            f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-transcriptions",
-            files={
-                "audio": (
-                    filename,
-                    audio_bytes,
-                    mime_type or "application/octet-stream",
-                )
-            },
-        )
+    response = await asyncio.to_thread(
+        _post_audio_json,
+        f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-transcriptions",
+        audio_bytes,
+        filename,
+        mime_type,
+        domain,
+        mode,
+        boosted_words,
+        boost_score,
+    )
 
     _raise_for_error(response)
     return response.json()
@@ -105,18 +164,22 @@ async def send_audio_message(
     audio_bytes: bytes,
     filename: str,
     mime_type: str,
+    domain: str | None = None,
+    mode: str | None = None,
+    boosted_words: list[str] | None = None,
+    boost_score: float | None = None,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
-        response = await client.post(
-            f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-messages",
-            files={
-                "audio": (
-                    filename,
-                    audio_bytes,
-                    mime_type or "application/octet-stream",
-                )
-            },
-        )
+    response = await asyncio.to_thread(
+        _post_audio_json,
+        f"{ORCHESTRATOR_URL}/sessions/{session_id}/audio-messages",
+        audio_bytes,
+        filename,
+        mime_type,
+        domain,
+        mode,
+        boosted_words,
+        boost_score,
+    )
 
     _raise_for_error(response)
     return response.json()

@@ -1,9 +1,11 @@
 import os
+import inspect
 from typing import Any
 
-from fastapi import Cookie, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.datastructures import FormData
 
 import flow
 import orchestrator_client
@@ -84,6 +86,42 @@ def clear_session_cookie(response: Response) -> None:
     )
 
 
+def optional_form_string(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    stripped = value.strip()
+    return stripped or None
+
+
+def optional_form_float(value: object) -> float | None:
+    if value in {None, ""}:
+        return None
+
+    try:
+        return float(str(value))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid boost_score.")
+
+
+async def read_audio_form(request: Request) -> tuple[bytes, str, str, FormData]:
+    form = await request.form()
+    audio = form.get("audio")
+
+    if audio is None or isinstance(audio, str) or not hasattr(audio, "read"):
+        raise HTTPException(status_code=422, detail="Missing audio upload.")
+
+    audio_read_result = audio.read()
+    audio_bytes = await audio_read_result if inspect.isawaitable(audio_read_result) else audio_read_result
+
+    return (
+        audio_bytes,
+        getattr(audio, "filename", None) or "voice-message.webm",
+        getattr(audio, "content_type", None) or "application/octet-stream",
+        form,
+    )
+
+
 def public_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
@@ -146,17 +184,26 @@ async def send_message(
 
 @app.post("/api/audio-transcriptions")
 async def transcribe_audio_message(
-    audio: UploadFile = File(...),
+    request: Request,
     simple_chat_session_id: str | None = Cookie(default=None),
 ):
     session_id = require_session_id(simple_chat_session_id)
+    audio_bytes, filename, mime_type, form = await read_audio_form(request)
 
     try:
         payload = await orchestrator_client.transcribe_audio_message(
             session_id=session_id,
-            audio_bytes=await audio.read(),
-            filename=audio.filename or "voice-message.webm",
-            mime_type=audio.content_type or "application/octet-stream",
+            audio_bytes=audio_bytes,
+            filename=filename,
+            mime_type=mime_type,
+            domain=optional_form_string(form.get("domain")),
+            mode=optional_form_string(form.get("mode")),
+            boosted_words=[
+                word
+                for word in form.getlist("boosted_words")
+                if isinstance(word, str) and word.strip()
+            ],
+            boost_score=optional_form_float(form.get("boost_score")),
         )
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:
@@ -165,17 +212,26 @@ async def transcribe_audio_message(
 
 @app.post("/api/audio-messages")
 async def send_audio_message(
-    audio: UploadFile = File(...),
+    request: Request,
     simple_chat_session_id: str | None = Cookie(default=None),
 ):
     session_id = require_session_id(simple_chat_session_id)
+    audio_bytes, filename, mime_type, form = await read_audio_form(request)
 
     try:
         payload = await orchestrator_client.send_audio_message(
             session_id=session_id,
-            audio_bytes=await audio.read(),
-            filename=audio.filename or "voice-message.webm",
-            mime_type=audio.content_type or "application/octet-stream",
+            audio_bytes=audio_bytes,
+            filename=filename,
+            mime_type=mime_type,
+            domain=optional_form_string(form.get("domain")),
+            mode=optional_form_string(form.get("mode")),
+            boosted_words=[
+                word
+                for word in form.getlist("boosted_words")
+                if isinstance(word, str) and word.strip()
+            ],
+            boost_score=optional_form_float(form.get("boost_score")),
         )
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:

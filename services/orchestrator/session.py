@@ -32,6 +32,8 @@ class QuotaExceededError(OrchestratorError):
 DEFAULT_PROJECT_PRIORITY = 30
 REQUEST_TYPE_PRIORITIES = {
     "message.free.voice": 0,
+    "message.voice.asr": 0,
+    "message.voice.tts": 0,
     "message.free.text": 5,
     "opening": 10,
     "message.structured.voice": 10,
@@ -226,11 +228,15 @@ def add_response_audio(
     text: str,
     usage: dict[str, Any],
     response_modality: str,
+    priority: int = 100,
 ) -> None:
     if response_modality != "voice":
         return
 
-    audio_bytes, audio_mime_type, speech_usage = clients.synthesise_speech(text)
+    audio_bytes, audio_mime_type, speech_usage = clients.synthesise_speech(
+        text,
+        priority=priority,
+    )
     payload["audio_base64"] = base64.b64encode(audio_bytes).decode("ascii")
     payload["audio_mime_type"] = audio_mime_type
     usage["speech"] = speech_usage
@@ -371,7 +377,13 @@ def create_new_session(
         "usage": usage,
     }
 
-    add_response_audio(payload, opening_text, usage, response_modality)
+    add_response_audio(
+        payload,
+        opening_text,
+        usage,
+        response_modality,
+        priority=llm_priority["effective_priority"],
+    )
     db.update_turn(
         turn_id=str(turn_record["id"]),
         status="completed",
@@ -906,7 +918,13 @@ def handle_user_message(
         "usage": usage,
     }
 
-    add_response_audio(payload, avatar_text, usage, response_modality)
+    add_response_audio(
+        payload,
+        avatar_text,
+        usage,
+        response_modality,
+        priority=llm_priority["effective_priority"],
+    )
     db.update_turn(
         turn_id=turn_id,
         status="completed",
@@ -938,13 +956,29 @@ def transcribe_user_audio_message(
     session_id: str,
     audio_bytes: bytes,
     mime_type: str,
+    domain: str | None = None,
+    mode: str | None = None,
+    boosted_words: list[str] | None = None,
+    boost_score: float | None = None,
 ) -> dict[str, Any]:
     session_record = db.get_session_with_project_and_key(session_id)
     validate_session_record(session_record)
+    asr_priority = build_llm_priority_metadata(session_record, "message.voice.asr")
+    requested_mode = (mode or clients.ASR_DEFAULT_MODE).strip().lower()
+    if requested_mode != "offline":
+        raise OrchestratorError(
+            "Streaming ASR requires a streaming endpoint; audio upload "
+            "transcription currently supports mode=offline only."
+        )
 
     transcript, transcription_usage = clients.transcribe_audio(
         audio_bytes=audio_bytes,
         mime_type=mime_type,
+        priority=asr_priority["effective_priority"],
+        domain=domain,
+        mode=requested_mode,
+        boosted_words=boosted_words,
+        boost_score=boost_score,
     )
 
     if not transcript:
@@ -957,6 +991,10 @@ def transcribe_user_audio_message(
         metadata={
             "request_type": "audio.transcription",
             "mime_type": mime_type,
+            "domain": domain,
+            "mode": requested_mode,
+            "boosted_words_count": len(boosted_words or []),
+            "scheduling": asr_priority,
             "usage": transcription_usage,
         },
     )
@@ -974,11 +1012,19 @@ def handle_user_audio_message(
     session_id: str,
     audio_bytes: bytes,
     mime_type: str,
+    domain: str | None = None,
+    mode: str | None = None,
+    boosted_words: list[str] | None = None,
+    boost_score: float | None = None,
 ) -> dict[str, Any]:
     transcription = transcribe_user_audio_message(
         session_id=session_id,
         audio_bytes=audio_bytes,
         mime_type=mime_type,
+        domain=domain,
+        mode=mode,
+        boosted_words=boosted_words,
+        boost_score=boost_score,
     )
     transcript = transcription["transcript"]
 

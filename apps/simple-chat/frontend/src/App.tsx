@@ -42,6 +42,7 @@ type EndSessionResponse = {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const RETRYABLE_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 
 function messageId() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -70,13 +71,133 @@ function audioBase64ToUrl(base64: string, mimeType: string) {
   return URL.createObjectURL(new Blob([bytes], { type: mimeType }))
 }
 
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index))
+  }
+}
+
+function resampleMono(buffer: AudioBuffer, targetSampleRate: number) {
+  const input = buffer.getChannelData(0)
+  const ratio = buffer.sampleRate / targetSampleRate
+  const outputLength = Math.max(1, Math.round(input.length / ratio))
+  const output = new Float32Array(outputLength)
+
+  for (let index = 0; index < outputLength; index += 1) {
+    const position = index * ratio
+    const leftIndex = Math.floor(position)
+    const rightIndex = Math.min(leftIndex + 1, input.length - 1)
+    const fraction = position - leftIndex
+    output[index] = input[leftIndex] * (1 - fraction) + input[rightIndex] * fraction
+  }
+
+  return output
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buffer)
+
+  writeAscii(view, 0, 'RIFF')
+  view.setUint32(4, 36 + samples.length * 2, true)
+  writeAscii(view, 8, 'WAVE')
+  writeAscii(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeAscii(view, 36, 'data')
+  view.setUint32(40, samples.length * 2, true)
+
+  let offset = 44
+  for (const sample of samples) {
+    const clipped = Math.max(-1, Math.min(1, sample))
+    view.setInt16(offset, clipped < 0 ? clipped * 0x8000 : clipped * 0x7fff, true)
+    offset += 2
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
+async function convertToWav(audioBlob: Blob) {
+  const audioContext = new AudioContext()
+
+  try {
+    const decoded = await audioContext.decodeAudioData(await audioBlob.arrayBuffer())
+    const sampleRate = 16000
+    return encodeWav(resampleMono(decoded, sampleRate), sampleRate)
+  } finally {
+    void audioContext.close()
+  }
+}
+
 async function readError(response: Response) {
   try {
     const payload = await response.json()
-    return payload.detail ?? 'Request failed'
+    const detail = payload.detail ?? payload.error ?? payload.message
+
+    if (typeof detail === 'string') {
+      return detail
+    }
+
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => {
+          if (typeof item === 'string') {
+            return item
+          }
+
+          if (item && typeof item === 'object' && 'msg' in item) {
+            return String(item.msg)
+          }
+
+          return JSON.stringify(item)
+        })
+        .join('; ')
+    }
+
+    if (detail && typeof detail === 'object') {
+      return JSON.stringify(detail)
+    }
+
+    return 'Request failed'
   } catch {
     return 'Request failed'
   }
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds)
+  })
+}
+
+async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit) {
+  const maxAttempts = 3
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(input, init)
+
+      if (!RETRYABLE_STATUS_CODES.has(response.status) || attempt === maxAttempts - 1) {
+        return response
+      }
+    } catch (error) {
+      lastError = error
+
+      if (attempt === maxAttempts - 1) {
+        throw error
+      }
+    }
+
+    await sleep(400 * 2 ** attempt)
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Request failed')
 }
 
 function App() {
@@ -107,7 +228,7 @@ function App() {
       setIsBusy(true)
 
       try {
-        const response = await fetch(`${API_BASE_URL}/api/sessions/current`, {
+        const response = await fetchWithRetry(`${API_BASE_URL}/api/sessions/current`, {
           credentials: 'include',
         })
 
@@ -249,7 +370,7 @@ function App() {
     setSummary(null)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/sessions`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/api/sessions`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -294,7 +415,7 @@ function App() {
     setStatus('Ending session...')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/sessions/current/end`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/api/sessions/current/end`, {
         method: 'POST',
         credentials: 'include',
       })
@@ -338,7 +459,7 @@ function App() {
     ])
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/messages`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/api/messages`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -454,10 +575,11 @@ function App() {
     setIsBusy(true)
 
     try {
+      const wavBlob = await convertToWav(audioBlob)
       const formData = new FormData()
-      formData.append('audio', audioBlob, 'voice-message.webm')
+      formData.append('audio', wavBlob, 'voice-message.wav')
 
-      const transcriptionResponse = await fetch(`${API_BASE_URL}/api/audio-transcriptions`, {
+      const transcriptionResponse = await fetchWithRetry(`${API_BASE_URL}/api/audio-transcriptions`, {
         method: 'POST',
         credentials: 'include',
         body: formData,
@@ -479,7 +601,7 @@ function App() {
       ])
       setStatus('Thinking...')
 
-      const response = await fetch(`${API_BASE_URL}/api/messages`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/api/messages`, {
         method: 'POST',
         credentials: 'include',
         headers: {

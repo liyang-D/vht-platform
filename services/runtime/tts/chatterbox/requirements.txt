@@ -1,0 +1,10 @@
+fastapi==0.115.6
+python-multipart==0.0.20
+uvicorn[standard]==0.34.0
+transformers==5.2.0
+diffusers==0.29.0
+conformer==0.3.2
+safetensors==0.5.3
+bitstring>=4.0.0
+pyloudnorm
+omegaconf

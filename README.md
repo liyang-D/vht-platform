@@ -9,6 +9,8 @@ runtime contracts are clear.
 - `postgres`: persistent platform database, backed by a Docker named volume.
 - `migrate`: one-shot platform-core database bootstrap/migration container.
 - `llm`: local OpenAI-compatible vLLM runtime, defaulting to `Qwen/Qwen3-30B-A3B-Instruct-2507`.
+- `asr`: local NVIDIA Speech NIM ASR runtime, defaulting to `parakeet-1-1b-ctc-en-us`.
+- `tts`: local Chatterbox-Turbo English TTS runtime.
 - `orchestrator`: internal API used by apps.
 - `apps/simple-chat/backend`: internal use-case API.
 - `apps/simple-chat/frontend`: public frontend; proxies `/api` to its backend.
@@ -30,8 +32,26 @@ Compose files and Dockerfiles, but different project names, env files, ports,
 secrets, and Postgres volumes.
 Set `HF_TOKEN` in the selected env file so the local vLLM runtime can download
 models from Hugging Face; the orchestrator talks to it through `LLM_API_BASE_URL`.
+Set `NGC_API_KEY` so the NVIDIA Speech NIM ASR runtime can download and cache
+its model artifacts on first start. The optional Magpie/Riva TTS runtime uses
+the same key when enabled through the `riva-tts` Compose profile.
+Chatterbox-Turbo uses the Hugging Face cache and can use `HF_TOKEN` if needed.
+Place a 5-10 second default voice prompt at
+`services/runtime/tts/voices/default.wav` or set
+`CHATTERBOX_TTS_AUDIO_PROMPT_PATH` to another mounted prompt path.
+ASR domain routing is configured in
+`services/orchestrator/config/asr_domains.json`; the default domain works
+without custom language model artifacts and can later point to domain-specific
+ASR runtimes. Future domain ASR artifacts live under
+`services/runtime/asr/domains/<domain>/`. ASR NIM is configured with `mode=all`
+so the runtime can expose both offline and streaming modes; the current
+simple-chat app uploads complete audio files and defaults its orchestrator
+request to offline transcription.
 Projects default to priority `30`; lower numbers are scheduled earlier, combined
-with the orchestrator's request-type priority before calling vLLM.
+with the orchestrator's request-type priority before calling local runtimes.
+Default dev runtime limits favor headroom over maximum context length:
+`LLM_GPU_MEMORY_UTILIZATION=0.65`, `LLM_MAX_MODEL_LEN=16384`, and ASR/TTS
+runtime gates are set to one concurrent request each.
 
 ## Start
 
@@ -116,6 +136,9 @@ session history and should be physically removed.
 - Do not commit real env files, API keys, database data, or model weights.
 - Keep LoRA adapters under `services/runtime/vllm/loras`; that directory is
   mounted into the local LLM runtime and ignored by git.
+- ASR and optional Magpie/Riva TTS model caches live in Docker named volumes
+  (`nim_asr_cache` and `nim_tts_cache`). Chatterbox model files live in the
+  shared Hugging Face cache volume.
 - Add a `Dockerfile` and service-local dependency file for each new completed
   runtime/app backend.
 - Keep service calls configurable through env vars; inside Compose, use service
