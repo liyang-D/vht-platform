@@ -308,6 +308,7 @@ def create_new_session(
     access_key: str,
     task_config: TaskConfig,
     response_modality: str = "text",
+    synthesize_audio: bool = True,
     runtime_state: RuntimeState | None = None,
 ) -> dict[str, Any]:
     validate_task_config(task_config)
@@ -389,13 +390,14 @@ def create_new_session(
         "usage": usage,
     }
 
-    add_response_audio(
-        payload,
-        opening_text,
-        usage,
-        response_modality,
-        priority=llm_priority["effective_priority"],
-    )
+    if synthesize_audio:
+        add_response_audio(
+            payload,
+            opening_text,
+            usage,
+            response_modality,
+            priority=llm_priority["effective_priority"],
+        )
     db.update_turn(
         turn_id=str(turn_record["id"]),
         status="completed",
@@ -727,6 +729,7 @@ def handle_user_message(
     session_id: str,
     user_text: str,
     response_modality: str = "text",
+    synthesize_audio: bool = True,
     interaction_mode: str = "free",
     previous_step: StructuredStep | None = None,
     current_step: StructuredStep | None = None,
@@ -932,13 +935,14 @@ def handle_user_message(
         "usage": usage,
     }
 
-    add_response_audio(
-        payload,
-        avatar_text,
-        usage,
-        response_modality,
-        priority=llm_priority["effective_priority"],
-    )
+    if synthesize_audio:
+        add_response_audio(
+            payload,
+            avatar_text,
+            usage,
+            response_modality,
+            priority=llm_priority["effective_priority"],
+        )
     db.update_turn(
         turn_id=turn_id,
         status="completed",

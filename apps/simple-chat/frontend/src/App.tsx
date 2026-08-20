@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js'
+import type { BotLLMTextData, TranscriptData } from '@pipecat-ai/client-js'
+import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
 import './App.css'
 import './SimpleChat.css'
 import ScenarioDialog from "./ScenarioDialog"
@@ -64,6 +67,54 @@ type Scenario = {
   name: string
   role: string
   instructions: string
+}
+
+type RealtimeVoiceState = 'disconnected' | 'connecting' | 'listening' | 'thinking' | 'speaking'
+
+type TurnTakingConfig = {
+  enabled: boolean
+  enable_interruptions: boolean
+  min_words_to_interrupt: number
+  use_interim_transcripts_for_interruptions: boolean
+  vad_confidence: number
+  vad_start_secs: number
+  vad_stop_secs: number
+  vad_min_volume: number
+  smart_turn_stop_secs: number
+  smart_turn_pre_speech_ms: number
+  smart_turn_max_duration_secs: number
+  smart_turn_cpu_threads: number
+  user_turn_stop_timeout_secs: number
+  audio_input_sample_rate: 16000
+  audio_output_sample_rate: number
+  output_audio_chunk_ms: number
+  asr_language: string
+  asr_automatic_punctuation: boolean
+  asr_boosted_words: string[]
+  asr_boost_score: number
+}
+
+const FALLBACK_TURN_TAKING_CONFIG: TurnTakingConfig = {
+  enabled: true,
+  enable_interruptions: true,
+  min_words_to_interrupt: 3,
+  use_interim_transcripts_for_interruptions: true,
+  vad_confidence: 0.7,
+  vad_start_secs: 0.2,
+  vad_stop_secs: 0.2,
+  vad_min_volume: 0.6,
+  smart_turn_stop_secs: 3,
+  smart_turn_pre_speech_ms: 500,
+  smart_turn_max_duration_secs: 8,
+  smart_turn_cpu_threads: 1,
+  user_turn_stop_timeout_secs: 5,
+  audio_input_sample_rate: 16000,
+  audio_output_sample_rate: 24000,
+  output_audio_chunk_ms: 20,
+  asr_language: 'en-US',
+  asr_automatic_punctuation: true,
+  asr_boosted_words: [],
+  asr_boost_score: 4,
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
@@ -247,6 +298,10 @@ function App() {
   const [customInstructions, setCustomInstructions] = useState("")
   const [activeScenario, setActiveScenario] = useState<Scenario | null>(null)
   const [isScenarioOpen, setIsScenarioOpen] = useState(false)
+  const [realtimeVoiceState, setRealtimeVoiceState] = useState<RealtimeVoiceState>('disconnected')
+  const [interimTranscript, setInterimTranscript] = useState('')
+  const [turnTakingConfig, setTurnTakingConfig] = useState<TurnTakingConfig>(FALLBACK_TURN_TAKING_CONFIG)
+  const [realtimeIceServers, setRealtimeIceServers] = useState<RTCIceServer[]>([])
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
@@ -257,9 +312,29 @@ function App() {
   const animationFrameRef = useRef<number | null>(null)
   const avatarAudioRef = useRef<HTMLAudioElement | null>(null)
   const avatarAudioUrlRef = useRef<string | null>(null)
+  const realtimeClientRef = useRef<PipecatClient | null>(null)
+  const realtimeAudioRef = useRef<HTMLAudioElement | null>(null)
+  const realtimeVoiceStateRef = useRef<RealtimeVoiceState>('disconnected')
 
   useEffect(() => {
     let ignore = false
+
+    async function loadTurnTakingConfig() {
+      try {
+        const response = await fetchWithRetry(`${API_BASE_URL}/api/realtime/config`)
+        if (!response.ok) throw new Error(await readError(response))
+        const payload = (await response.json()) as {
+          defaults: TurnTakingConfig
+          public_ice_servers: RTCIceServer[]
+        }
+        if (!ignore) {
+          setTurnTakingConfig(payload.defaults)
+          setRealtimeIceServers(payload.public_ice_servers ?? [])
+        }
+      } catch {
+        // The in-app defaults mirror the server and keep text/upload fallback usable.
+      }
+    }
 
     async function restoreCurrentSession() {
       setIsBusy(true)
@@ -351,6 +426,7 @@ function App() {
     }
 
     restoreCurrentSession()
+    loadTurnTakingConfig()
     loadLoraAdapters()
     loadDefaultScenario()
 
@@ -358,6 +434,11 @@ function App() {
       ignore = true
       stopAvatarAudio()
       stopRecordingResources()
+      const realtimeClient = realtimeClientRef.current
+      realtimeClientRef.current = null
+      if (realtimeClient) {
+        void realtimeClient.disconnect().catch(() => undefined)
+      }
     }
   }, [])
 
@@ -392,6 +473,7 @@ function App() {
     }
 
     stopAvatarAudio()
+    await disconnectRealtimeVoice()
 
     const audioUrl = audioBase64ToUrl(audioBase64, audioMimeType)
     const audio = new Audio(audioUrl)
@@ -403,6 +485,143 @@ function App() {
     }
 
     await audio.play()
+  }
+
+  function updateRealtimeVoiceState(next: RealtimeVoiceState) {
+    realtimeVoiceStateRef.current = next
+    setRealtimeVoiceState(next)
+  }
+
+  async function applyRealtimeMicConstraints(client: PipecatClient) {
+    const track = client.tracks().local.audio
+    if (!track) return
+
+    try {
+      await track.applyConstraints({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      })
+    } catch {
+      // Some browsers expose WebRTC audio processing but reject explicit constraints.
+    }
+  }
+
+  async function disconnectRealtimeVoice() {
+    const client = realtimeClientRef.current
+    realtimeClientRef.current = null
+    setInterimTranscript('')
+
+    if (realtimeAudioRef.current) {
+      realtimeAudioRef.current.srcObject = null
+    }
+
+    if (client) {
+      try {
+        await client.disconnect()
+      } catch {
+        // The transport may already be closed by the server.
+      }
+    }
+
+    updateRealtimeVoiceState('disconnected')
+  }
+
+  async function startRealtimeVoice(speakOpeningMessage = false) {
+    if (realtimeClientRef.current || !turnTakingConfig.enabled) return
+
+    stopAvatarAudio()
+    await disconnectRealtimeVoice()
+    updateRealtimeVoiceState('connecting')
+    setStatus('Connecting continuous voice...')
+
+    const client = new PipecatClient({
+      transport: new SmallWebRTCTransport({ iceServers: realtimeIceServers }),
+      enableMic: true,
+      enableCam: false,
+    })
+    realtimeClientRef.current = client
+
+    client.on(RTVIEvent.TrackStarted, (track, participant) => {
+      if (track.kind !== 'audio') return
+      if (participant?.local) {
+        void applyRealtimeMicConstraints(client)
+        return
+      }
+      if (realtimeAudioRef.current) {
+        realtimeAudioRef.current.srcObject = new MediaStream([track])
+        void realtimeAudioRef.current.play().catch(() => undefined)
+      }
+    })
+    client.on(RTVIEvent.UserTranscript, (data: TranscriptData) => {
+      setInterimTranscript(data.final ? '' : data.text)
+    })
+    client.on(RTVIEvent.UserLlmText, (data) => {
+      const text = data.text.trim()
+      if (!text) return
+      setInterimTranscript('')
+      setMessages((current) => [
+        ...current,
+        { id: messageId(), role: 'user', text },
+      ])
+    })
+    client.on(RTVIEvent.BotLlmText, (data: BotLLMTextData) => {
+      const text = data.text.trim()
+      if (!text) return
+      setMessages((current) => [
+        ...current,
+        { id: messageId(), role: 'assistant', text },
+      ])
+    })
+    client.on(RTVIEvent.UserStartedSpeaking, () => {
+      const wasSpeaking = realtimeVoiceStateRef.current === 'speaking'
+      updateRealtimeVoiceState('listening')
+      setStatus(wasSpeaking ? 'Interrupted — listening...' : 'Listening...')
+    })
+    client.on(RTVIEvent.UserStoppedSpeaking, () => {
+      updateRealtimeVoiceState('thinking')
+      setStatus('Thinking...')
+    })
+    client.on(RTVIEvent.BotStartedSpeaking, () => {
+      updateRealtimeVoiceState('speaking')
+      setStatus('Speaking — you can interrupt')
+    })
+    client.on(RTVIEvent.BotStoppedSpeaking, () => {
+      if (realtimeVoiceStateRef.current === 'speaking') {
+        updateRealtimeVoiceState('listening')
+        setStatus('Listening continuously')
+      }
+    })
+    client.on(RTVIEvent.Disconnected, () => {
+      realtimeClientRef.current = null
+      updateRealtimeVoiceState('disconnected')
+      setInterimTranscript('')
+      setStatus('Realtime voice disconnected')
+    })
+    client.on(RTVIEvent.Error, (message) => {
+      const data = message.data as { message?: string } | undefined
+      setStatus(data?.message ?? 'Realtime voice error')
+    })
+
+    try {
+      await client.initDevices()
+      await applyRealtimeMicConstraints(client)
+      await client.connect({
+        webrtcRequestParams: {
+          endpoint: `${API_BASE_URL}/api/realtime/offer`,
+          requestData: {
+            turn_taking: turnTakingConfig,
+            speak_opening_message: speakOpeningMessage,
+          },
+        },
+      })
+      updateRealtimeVoiceState('listening')
+      setStatus('Listening continuously')
+    } catch (error) {
+      await disconnectRealtimeVoice()
+      setStatus(error instanceof Error ? error.message : 'Could not connect realtime voice')
+    }
   }
 
   function stopRecordingResources() {
@@ -461,6 +680,7 @@ function App() {
 
   async function startSession() {
     stopAvatarAudio()
+    await disconnectRealtimeVoice()
     setIsBusy(true)
     setStatus('Starting session...')
     setSummary(null)
@@ -474,6 +694,7 @@ function App() {
         },
         body: JSON.stringify({
           response_modality: mode,
+          synthesize_audio: mode !== 'voice',
           lora_adapter: selectedAdapter || null,
           scenario: scenarioMode === "custom"
             ? { role: customRole, instructions: customInstructions }
@@ -498,7 +719,11 @@ function App() {
         },
       ])
       setStatus('Ready')
-      await playAvatarSpeech(payload.audio_base64, payload.audio_mime_type)
+      if (mode === 'voice') {
+        await startRealtimeVoice(true)
+      } else {
+        await playAvatarSpeech(payload.audio_base64, payload.audio_mime_type)
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not start session')
     } finally {
@@ -512,6 +737,7 @@ function App() {
     }
 
     stopAvatarAudio()
+    await disconnectRealtimeVoice()
     setIsBusy(true)
     setStatus('Ending session...')
 
@@ -546,6 +772,7 @@ function App() {
     }
 
     stopAvatarAudio()
+    await disconnectRealtimeVoice()
     setInput('')
     setIsBusy(true)
     setStatus('Thinking...')
@@ -608,6 +835,7 @@ function App() {
     }
 
     stopAvatarAudio()
+    await disconnectRealtimeVoice()
     setStatus('Recording...')
 
     try {
@@ -651,6 +879,7 @@ function App() {
       drawWaveform()
     } catch (error) {
       stopRecordingResources()
+      void disconnectRealtimeVoice()
       setIsRecording(false)
       setStatus(error instanceof Error ? error.message : 'Could not access microphone')
     }
@@ -813,7 +1042,7 @@ function App() {
             <button
               className={mode === 'text' ? 'active' : ''}
               disabled={isRecording}
-              onClick={() => setMode('text')}
+              onClick={() => { void disconnectRealtimeVoice(); setMode('text') }}
               type="button"
             >
               Text
@@ -884,21 +1113,95 @@ function App() {
             </button>
           </form>
         ) : (
-          <section className="voice-composer" aria-label="Voice message controls">
-            <canvas
-              className="waveform"
-              height={48}
-              ref={waveformCanvasRef}
-              width={360}
-            />
+          <section className="voice-composer realtime" aria-label="Realtime voice controls">
+            <audio autoPlay className="realtime-audio" ref={realtimeAudioRef} />
+            <div className={`voice-state ${realtimeVoiceState}`}>
+              <span aria-hidden="true" className="voice-state-dot" />
+              <div>
+                <strong>{realtimeVoiceState}</strong>
+                <small>
+                  {interimTranscript || (realtimeVoiceState === 'speaking'
+                    ? `Say ${turnTakingConfig.min_words_to_interrupt}+ words to interrupt`
+                    : 'Mic stays open; Smart Turn handles natural pauses')}
+                </small>
+              </div>
+            </div>
             <button
-              className={isRecording ? 'recording' : ''}
-              disabled={!hasSession || isBusy || isEnded}
-              onClick={isRecording ? stopRecording : startRecording}
+              className={realtimeVoiceState === 'disconnected' ? '' : 'recording'}
+              disabled={!hasSession || isBusy || isEnded || !turnTakingConfig.enabled}
+              onClick={() => {
+                if (realtimeVoiceState === 'disconnected') void startRealtimeVoice()
+                else void disconnectRealtimeVoice()
+              }}
               type="button"
             >
-              {isRecording ? 'Stop Recording' : 'Start Recording'}
+              {realtimeVoiceState === 'disconnected' ? 'Connect Realtime Voice' : 'Disconnect Voice'}
             </button>
+            <details className="turn-settings">
+              <summary>Turn-taking settings</summary>
+              <div className="turn-settings-grid">
+                <label>
+                  <span>Words to interrupt</span>
+                  <input
+                    disabled={realtimeVoiceState !== 'disconnected'}
+                    max={20}
+                    min={1}
+                    onChange={(event) => setTurnTakingConfig((current) => ({
+                      ...current,
+                      min_words_to_interrupt: Number(event.target.value),
+                    }))}
+                    type="number"
+                    value={turnTakingConfig.min_words_to_interrupt}
+                  />
+                </label>
+                <label>
+                  <span>VAD confidence</span>
+                  <input
+                    disabled={realtimeVoiceState !== 'disconnected'}
+                    max={0.99}
+                    min={0.1}
+                    onChange={(event) => setTurnTakingConfig((current) => ({
+                      ...current,
+                      vad_confidence: Number(event.target.value),
+                    }))}
+                    step={0.05}
+                    type="number"
+                    value={turnTakingConfig.vad_confidence}
+                  />
+                </label>
+                <label>
+                  <span>Smart Turn max silence</span>
+                  <input
+                    disabled={realtimeVoiceState !== 'disconnected'}
+                    max={10}
+                    min={0.5}
+                    onChange={(event) => setTurnTakingConfig((current) => ({
+                      ...current,
+                      smart_turn_stop_secs: Number(event.target.value),
+                    }))}
+                    step={0.5}
+                    type="number"
+                    value={turnTakingConfig.smart_turn_stop_secs}
+                  />
+                </label>
+              </div>
+              <p>
+                Browser echo cancellation, noise suppression and automatic gain control are enabled.
+                Changes apply on the next connection.
+              </p>
+            </details>
+            <details className="upload-fallback">
+              <summary>Upload recording fallback</summary>
+              <canvas className="waveform" height={48} ref={waveformCanvasRef} width={360} />
+              <button
+                className={isRecording ? 'recording' : ''}
+                disabled={!hasSession || isBusy || isEnded || realtimeVoiceState !== 'disconnected'}
+                onClick={isRecording ? stopRecording : startRecording}
+                type="button"
+              >
+                {isRecording ? 'Stop Recording' : 'Record One Message'}
+              </button>
+            </details>
           </section>
         )}
       </section>

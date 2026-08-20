@@ -27,6 +27,7 @@ class CreateSessionRequest(BaseModel):
     access_key: str
     task_config: TaskConfig = Field(default_factory=TaskConfig)
     response_modality: ResponseModality = "text"
+    synthesize_audio: bool = True
     runtime_state: RuntimeState | None = None
 
 
@@ -45,6 +46,7 @@ class CreateSessionResponse(BaseModel):
 class SendMessageRequest(BaseModel):
     text: str
     response_modality: ResponseModality = "text"
+    synthesize_audio: bool = True
     interaction_mode: InteractionMode = "free"
     previous_step: StructuredStep | None = None
     current_step: StructuredStep | None = None

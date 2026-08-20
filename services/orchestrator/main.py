@@ -117,6 +117,7 @@ def create_session(request: CreateSessionRequest):
             access_key=request.access_key,
             task_config=request.task_config,
             response_modality=request.response_modality,
+            synthesize_audio=request.synthesize_audio,
             runtime_state=request.runtime_state,
         )
     
@@ -158,6 +159,7 @@ def send_message(session_id: str, request: SendMessageRequest):
             session_id=session_id,
             user_text=request.text,
             response_modality=request.response_modality,
+            synthesize_audio=request.synthesize_audio,
             interaction_mode=request.interaction_mode,
             previous_step=request.previous_step,
             current_step=request.current_step,

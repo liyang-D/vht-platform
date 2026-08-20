@@ -92,6 +92,7 @@ def _post_audio_json(
 async def create_session(
     task_config: dict[str, Any],
     response_modality: str = "text",
+    synthesize_audio: bool = True,
 ) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -100,6 +101,7 @@ async def create_session(
                 "access_key": ACCESS_KEY,
                 "task_config": task_config,
                 "response_modality": response_modality,
+                "synthesize_audio": synthesize_audio,
             },
         )
 
@@ -127,6 +129,7 @@ async def send_message(
     session_id: str,
     text: str,
     response_modality: str = "text",
+    synthesize_audio: bool = True,
 ) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -134,6 +137,7 @@ async def send_message(
             json={
                 "text": text,
                 "response_modality": response_modality,
+                "synthesize_audio": synthesize_audio,
             },
         )
 

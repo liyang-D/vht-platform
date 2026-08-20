@@ -55,15 +55,63 @@ ASR domain routing is configured in
 `services/orchestrator/config/asr_domains.json`; the default domain works
 without custom language model artifacts and can later point to domain-specific
 ASR runtimes. Future domain ASR artifacts live under
-`services/runtime/asr/domains/<domain>/`. ASR NIM is configured with `mode=all`
-so the runtime can expose both offline and streaming modes; the current
-Simple Chat uploads complete audio files and defaults its orchestrator
-request to offline transcription.
+`services/runtime/asr/domains/<domain>/`. ASR NIM is configured with `mode=all` so the runtime can expose both offline
+and streaming modes. Realtime voice uses the streaming gRPC path; the retained
+one-message upload fallback still defaults its orchestrator request to offline
+transcription.
 Projects default to priority `30`; lower numbers are scheduled earlier, combined
 with the orchestrator's request-type priority before calling local runtimes.
 Default dev runtime limits favor headroom over maximum context length:
 `LLM_GPU_MEMORY_UTILIZATION=0.65`, `LLM_MAX_MODEL_LEN=16384`, and ASR/TTS
 runtime gates are set to one concurrent request each.
+
+## Realtime Turn-Taking
+
+Simple Chat voice mode uses a Pipecat `SmallWebRTCTransport` connection and keeps
+the microphone open while the assistant speaks. Browser WebRTC audio processing
+requests echo cancellation, noise suppression, automatic gain control, and mono
+audio. No additional browser-side VAD is used. The server pipeline is:
+
+```text
+WebRTC -> Silero VAD -> NVIDIA streaming ASR -> MinWords turn start
+       -> Smart Turn v3 turn end -> VHT orchestrator -> Chatterbox TTS -> WebRTC
+```
+
+The orchestrator remains authoritative for session history, prompts, model/LoRA
+selection, quota, LLM generation, and audit data. In realtime mode it skips the
+legacy base64 TTS field so audio is synthesized only once by the Pipecat TTS
+adapter. The previous one-message MediaRecorder upload flow remains available as
+a fallback under the voice controls.
+
+Server defaults are configured with `TURN_TAKING_*` environment variables in the
+example env files. Important defaults are interruptions enabled, three recognized
+words to interrupt while the bot is speaking, Silero confidence `0.7`, Smart Turn
+analysis after `3.0` seconds of silence, an eight-second Smart Turn audio window,
+and one CPU inference thread. `RIVA_ASR_*`, `ASR_MODEL`,
+`CHATTERBOX_TTS_*`, and `SIMPLE_CHAT_REALTIME_TTS_TIMEOUT_SECONDS` select the
+existing inference endpoints. `TURN_TAKING_ICE_SERVERS_JSON` accepts a JSON list
+of STUN/TURN URL strings or ICE server objects for remote/NAT deployments.
+Only non-secret string entries are mirrored into the browser peer configuration;
+objects containing static TURN credentials remain server-only.
+
+`GET /chat/api/realtime/config` returns resolved defaults. An app can override
+validated per-connection settings in the WebRTC offer as
+`requestData.turn_taking`; invalid, unknown, or out-of-range fields are rejected.
+The server `TURN_TAKING_ENABLED=false` kill switch cannot be overridden by a
+client. The built-in UI exposes interruption word count, VAD confidence, and
+Smart Turn silence; API clients can also set the remaining returned fields.
+
+Small WebRTC still needs a viable UDP/ICE route. Loopback or same-LAN access can
+work without a TURN service, but remote access through NAT commonly needs
+`TURN_TAKING_ICE_SERVERS_JSON` and HTTPS for browser microphone permission.
+Credentialed TURN for the browser requires a future short-lived TURN credential
+bootstrap; long-lived credentials are intentionally not exposed by this app.
+Chatterbox currently produces a complete WAV before the adapter sends chunks.
+Barge-in flushes queued browser audio and stale Pipecat output immediately, but
+the already-running Chatterbox GPU generation itself cannot be preempted until
+the TTS runtime offers a cancellable streaming endpoint. The repository currently
+has no separate avatar renderer; the realtime speaking state and audio stop are
+ready for a future avatar component to consume.
 
 ## Start
 

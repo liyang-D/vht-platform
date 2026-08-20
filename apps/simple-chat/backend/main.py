@@ -10,6 +10,7 @@ from starlette.datastructures import FormData
 import flow
 import history_repository
 import orchestrator_client
+import realtime
 from shared.scenarios import default_scenario
 
 
@@ -51,6 +52,7 @@ app.add_middleware(
 class SendMessageRequest(BaseModel):
     text: str
     response_modality: str = "text"
+    synthesize_audio: bool = True
 
 
 class ScenarioOverride(BaseModel):
@@ -60,6 +62,7 @@ class ScenarioOverride(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     response_modality: str = "text"
+    synthesize_audio: bool = True
     lora_adapter: str | None = None
     scenario: ScenarioOverride | None = None
 
@@ -194,6 +197,7 @@ async def create_session(
                 request.scenario.model_dump() if request.scenario else None,
             ),
             response_modality=request.response_modality,
+            synthesize_audio=request.synthesize_audio,
         )
         set_session_cookie(response, payload["session_id"])
         return public_session_payload(payload)
@@ -245,6 +249,7 @@ async def send_message(
             session_id=session_id,
             text=request.text,
             response_modality=request.response_modality,
+            synthesize_audio=request.synthesize_audio,
         )
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:
@@ -320,3 +325,56 @@ async def end_current_session(
         return public_session_payload(payload)
     except orchestrator_client.OrchestratorClientError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@app.get("/api/realtime/config")
+def get_realtime_config():
+    """Expose resolved server defaults; clients may override these in offer requestData."""
+    return {
+        "defaults": realtime.TurnTakingConfig.server_defaults().model_dump(),
+        "transport": "small-webrtc",
+        "public_ice_servers": realtime.public_browser_ice_servers(),
+        "browser_audio": {
+            "echo_cancellation": True,
+            "noise_suppression": True,
+            "auto_gain_control": True,
+        },
+    }
+
+
+@app.post("/api/realtime/offer")
+async def realtime_offer(
+    request: Request,
+    simple_chat_session_id: str | None = Cookie(default=None),
+):
+    session_id = require_session_id(simple_chat_session_id)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Invalid WebRTC offer payload.")
+
+    try:
+        return await realtime.handle_offer(payload, session_id)
+    except orchestrator_client.OrchestratorClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.patch("/api/realtime/offer")
+async def realtime_ice_patch(
+    request: Request,
+    simple_chat_session_id: str | None = Cookie(default=None),
+):
+    require_session_id(simple_chat_session_id)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Invalid ICE candidate payload.")
+    await realtime.handle_ice_patch(payload)
+    return {"ok": True}
+
+
+@app.on_event("shutdown")
+async def shutdown_realtime_voice():
+    await realtime.shutdown()
