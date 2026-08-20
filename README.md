@@ -13,10 +13,14 @@ runtime contracts are clear.
 - `tts`: local Chatterbox-Turbo English TTS runtime.
 - `orchestrator`: internal API used by apps.
 - `apps/simple-chat/backend`: internal use-case API.
-- `apps/simple-chat/frontend`: public frontend; proxies `/api` to its backend.
+- `apps/simple-chat/frontend`: internal frontend; proxies its `/api` requests to
+  its backend.
+- `gateway`: the single HTTP entry point; routes `/chat/` to simple-chat and is
+  the place to add future app mappings.
 
-Only frontend ports are exposed in prod by default. Dev binds internal service
-ports to `127.0.0.1` for local inspection without exposing them to the LAN.
+The gateway and all dev inspection ports bind to `127.0.0.1`, so Docker does
+not expose them to the LAN. Application containers otherwise communicate only
+over the Compose network.
 
 ## Environments
 
@@ -30,6 +34,13 @@ cp infra/env/prod.example.env infra/env/prod.env
 Real `infra/env/*.env` files are ignored by git. Dev and prod use the same
 Compose files and Dockerfiles, but different project names, env files, ports,
 secrets, and Postgres volumes.
+After changing Compose environment variables, verify both example files and
+local env files with:
+
+```bash
+./infra/check-env-schema.sh
+```
+
 Set `HF_TOKEN` in the selected env file so the local vLLM runtime can download
 models from Hugging Face; the orchestrator talks to it through `LLM_API_BASE_URL`.
 Set `NGC_API_KEY` so the NVIDIA Speech NIM ASR runtime can download and cache
@@ -78,6 +89,31 @@ Production-like, using existing images:
 ```bash
 docker compose --env-file infra/env/prod.env -p vht-prod -f infra/compose.yml -f infra/compose.prod.yml up -d
 ```
+
+## Access The Web Gateway Over SSH
+
+The HTTP gateway listens only on the DGX loopback interface, on port `8088` by
+default. From another computer, create a local SSH forward:
+
+```bash
+ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -L 127.0.0.1:8080:127.0.0.1:8088 \
+  <kent-username>@kmms-dgx01.kent.ac.uk
+```
+
+Keep that terminal open and browse to:
+
+```text
+http://127.0.0.1:8080/chat/
+```
+
+The two port numbers are intentionally independent: `8080` is on the client
+computer and can be changed if it is already in use; `8088` is the loopback
+gateway port on the DGX. This HTTP entry point can later sit behind a TLS
+endpoint or an IT-managed reverse proxy without changing the internal app
+routing.
 
 ## Deployment Rule
 

@@ -17,6 +17,10 @@ class TaskConfig(BaseModel):
     language: str | None = None
     requires_structured_output: bool = Field(default=False)
     structured_output_schema: dict[str, Any] | None = None
+    lora_adapter: str | None = Field(
+        default=None,
+        description="LoRA adapter directory name under the configured runtime LoRA root.",
+    )
 
 
 class CreateSessionRequest(BaseModel):
@@ -114,3 +118,25 @@ class EndSessionResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class LoraAdapterResponse(BaseModel):
+    name: str
+    path: str
+    base_model: str | None = None
+    base_revision: str | None = None
+    rank: int | None = None
+    peft_type: str | None = None
+    weights_file: str | None = None
+    loaded: bool | None = None
+    valid: bool = True
+    error: str | None = None
+
+
+class LoraAdapterListResponse(BaseModel):
+    adapters: list[LoraAdapterResponse]
+
+
+class LoraAdapterActionResponse(BaseModel):
+    adapter: LoraAdapterResponse
+    changed: bool

@@ -9,6 +9,7 @@ from shared.schemas import RuntimeState, StructuredStep, TurnPromptMetadata
 
 from . import clients
 from . import db
+from . import lora
 from . import safety
 from .schemas import TaskConfig
 
@@ -49,6 +50,13 @@ def validate_task_config(task_config: TaskConfig) -> None:
         raise OrchestratorError(
             "structured_output_schema is required when requires_structured_output is true."
         )
+
+
+def resolve_llm_model(adapter_name: str | None) -> str:
+    try:
+        return lora.resolve_model(adapter_name)
+    except lora.LoraError as e:
+        raise OrchestratorError(str(e)) from e
 
 
 def dump_model(value: BaseModel | dict[str, Any] | None) -> dict[str, Any] | None:
@@ -306,6 +314,7 @@ def create_new_session(
 
     access_record = db.get_access_key_with_project(access_key)
     validate_access_record(access_record)
+    llm_model = resolve_llm_model(task_config.lora_adapter)
 
     runtime_state_payload = (
         runtime_state.model_dump(mode="json", exclude_none=True)
@@ -329,7 +338,7 @@ def create_new_session(
     prompt_metadata = TurnPromptMetadata(
         response_modality=response_modality,
         prompt_template="opening.v1",
-        model=clients.LLM_MODEL,
+        model=llm_model,
     ).model_dump(mode="json", exclude_none=True)
     prompt_metadata["scheduling"] = llm_priority
     turn_record = db.create_turn(
@@ -342,6 +351,7 @@ def create_new_session(
     raw_llm_text, usage = clients.call_llm(
         opening_prompt,
         priority=llm_priority["effective_priority"],
+        model=llm_model,
     )
     opening_text, structured_output = parse_llm_output(raw_llm_text, task_config_dict)
 
@@ -400,7 +410,7 @@ def create_new_session(
         metadata={
             "request_type": "opening",
             "response_modality": response_modality,
-            "model": clients.LLM_MODEL,
+            "model": llm_model,
             "scheduling": llm_priority,
             "usage": usage,
             "audio_generated": bool(payload.get("audio_base64")),
@@ -724,6 +734,7 @@ def handle_user_message(
     validate_session_record(session_record)
 
     task_config = db.serialise_task_config(session_record.get("task_config"))
+    llm_model = resolve_llm_model(task_config.get("lora_adapter"))
     previous_payload = None
     current_payload = None
     next_payload = None
@@ -750,7 +761,7 @@ def handle_user_message(
         prompt_template="structured.v1"
         if interaction_mode == "structured"
         else "free.v1",
-        model=clients.LLM_MODEL,
+        model=llm_model,
     ).model_dump(mode="json", exclude_none=True)
     prompt_metadata["scheduling"] = llm_priority
     turn_record = db.create_turn(
@@ -818,7 +829,7 @@ def handle_user_message(
                 "request_type": request_type,
                 "response_modality": response_modality,
                 "interaction_mode": interaction_mode,
-                "model": clients.LLM_MODEL,
+                "model": llm_model,
                 "scheduling": llm_priority,
                 "usage": usage,
                 "safety_blocked": True,
@@ -867,6 +878,7 @@ def handle_user_message(
     raw_llm_text, usage = clients.call_llm(
         prompt,
         priority=llm_priority["effective_priority"],
+        model=llm_model,
     )
     if interaction_mode == "structured":
         avatar_text, structured_output = parse_structured_llm_output(
@@ -941,7 +953,7 @@ def handle_user_message(
             "request_type": request_type,
             "response_modality": response_modality,
             "interaction_mode": interaction_mode,
-            "model": clients.LLM_MODEL,
+            "model": llm_model,
             "scheduling": llm_priority,
             "usage": usage,
             "audio_generated": bool(payload.get("audio_base64")),
@@ -1122,10 +1134,12 @@ def summary_has_substantive_text(summary: str) -> bool:
 def summarise_session_with_quality_gate(
     conversation_text: str,
     priority: int,
+    model: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     summary, usage = clients.summarise_session(
         conversation_text,
         priority=priority,
+        model=model,
     )
 
     if summary_has_substantive_text(summary):
@@ -1155,9 +1169,12 @@ def end_existing_session(session_id: str) -> dict[str, Any]:
     else:
         conversation_text = build_conversation_text(messages)
         llm_priority = build_llm_priority_metadata(session_record, "summary")
+        task_config = db.serialise_task_config(session_record.get("task_config"))
+        llm_model = resolve_llm_model(task_config.get("lora_adapter"))
         summary, usage = summarise_session_with_quality_gate(
             conversation_text,
             priority=llm_priority["effective_priority"],
+            model=llm_model,
         )
 
         usage_amount = usage.get("total_tokens") or 1
@@ -1170,7 +1187,7 @@ def end_existing_session(session_id: str) -> dict[str, Any]:
             "request_type": "summary",
             "summary_generated": True,
             "message_count": len(messages),
-            "model": clients.LLM_MODEL,
+            "model": llm_model,
             "scheduling": llm_priority,
             "usage": usage,
         }

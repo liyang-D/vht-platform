@@ -107,6 +107,14 @@ async def create_session(
     return response.json()
 
 
+async def list_lora_adapters() -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
+        response = await client.get(f"{ORCHESTRATOR_URL}/loras")
+
+    _raise_for_error(response)
+    return response.json()
+
+
 async def get_session(session_id: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
         response = await client.get(f"{ORCHESTRATOR_URL}/sessions/{session_id}")

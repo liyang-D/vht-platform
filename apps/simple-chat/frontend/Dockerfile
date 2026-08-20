@@ -6,6 +6,8 @@ COPY apps/simple-chat/frontend/package.json apps/simple-chat/frontend/package-lo
 RUN npm ci
 
 COPY apps/simple-chat/frontend ./
+ARG VITE_APP_BASE_PATH=/chat/
+ENV VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
 RUN npm run build
 
 FROM nginx:1.27-alpine

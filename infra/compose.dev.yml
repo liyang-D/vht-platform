@@ -24,9 +24,11 @@ services:
     ports:
       - "127.0.0.1:${SIMPLE_CHAT_BACKEND_PORT:-8010}:8010"
 
-  simple-chat-frontend:
+  gateway:
     ports:
-      - "${SIMPLE_CHAT_FRONTEND_PORT:-5173}:80"
+      # TEMPORARY: campus HTTP access for presentations until HTTPS/TLS on 443 is ready.
+      # Restore the 127.0.0.1 binding after testing so access returns to SSH tunnelling only.
+      - "${GATEWAY_PORT:-8088}:80"
 
   adminer:
     image: adminer:5-standalone

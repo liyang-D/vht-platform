@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Request
 from starlette.datastructures import FormData
 
 from . import session
+from .lora_routes import router as lora_router
 from .schemas import (
     CreateSessionRequest,
     CreateSessionResponse,
@@ -21,6 +22,8 @@ app = FastAPI(
     title="VHT Orchestrator",
     version="0.1.0",
 )
+
+app.include_router(lora_router)
 
 
 def _optional_form_string(value: object) -> str | None:

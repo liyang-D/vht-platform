@@ -24,7 +24,21 @@ type StoredSessionMessage = {
 
 type GetSessionResponse = {
   summary: string | null
+  task_config: {
+    lora_adapter?: string | null
+  }
   messages: StoredSessionMessage[]
+}
+
+type LoraAdapter = {
+  name: string
+  loaded: boolean | null
+  valid: boolean
+  error: string | null
+}
+
+type LoraAdapterListResponse = {
+  adapters: LoraAdapter[]
 }
 
 type SendMessageResponse = {
@@ -41,7 +55,8 @@ type EndSessionResponse = {
   summary: string
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+  ?? import.meta.env.BASE_URL.replace(/\/$/, '')
 const RETRYABLE_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 
 function messageId() {
@@ -210,6 +225,9 @@ function App() {
   const [isBusy, setIsBusy] = useState(false)
   const [isEnded, setIsEnded] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+  const [loraAdapters, setLoraAdapters] = useState<LoraAdapter[]>([])
+  const [selectedAdapter, setSelectedAdapter] = useState('')
+  const [adapterNotice, setAdapterNotice] = useState('Loading model options...')
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
@@ -251,6 +269,7 @@ function App() {
           setMessages(payload.messages.map(toChatMessage))
           setSummary(payload.summary)
           setIsEnded(Boolean(payload.summary))
+          setSelectedAdapter(payload.task_config.lora_adapter ?? '')
           setStatus(payload.summary ? 'Session ended' : 'Ready')
         }
       } catch (error) {
@@ -264,7 +283,34 @@ function App() {
       }
     }
 
+    async function loadLoraAdapters() {
+      try {
+        const response = await fetchWithRetry(`${API_BASE_URL}/api/loras`)
+
+        if (!response.ok) {
+          throw new Error(await readError(response))
+        }
+
+        const payload = (await response.json()) as LoraAdapterListResponse
+        if (!ignore) {
+          setLoraAdapters(payload.adapters)
+          setAdapterNotice(
+            payload.adapters.some((adapter) => !adapter.valid)
+              ? 'Some adapters are unavailable'
+              : 'Applies to the next chat',
+          )
+        }
+      } catch (error) {
+        if (!ignore) {
+          setAdapterNotice(
+            error instanceof Error ? `Adapters unavailable: ${error.message}` : 'Adapters unavailable',
+          )
+        }
+      }
+    }
+
     restoreCurrentSession()
+    loadLoraAdapters()
 
     return () => {
       ignore = true
@@ -272,6 +318,8 @@ function App() {
       stopRecordingResources()
     }
   }, [])
+
+  const hasActiveSession = hasSession && !isEnded
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -378,6 +426,7 @@ function App() {
         },
         body: JSON.stringify({
           response_modality: mode,
+          lora_adapter: selectedAdapter || null,
         }),
       })
 
@@ -653,21 +702,47 @@ function App() {
             <h1>Simple Chat</h1>
             <p>{status}</p>
           </div>
-          <div className="session-chip">{hasSession ? 'Connected' : 'No active chat'}</div>
+          <div className="session-chip">{hasActiveSession ? 'Connected' : 'No active chat'}</div>
         </header>
 
         <section className="session-controls" aria-label="Session controls">
-          <button disabled={isBusy || isRecording} onClick={startSession} type="button">
+          <button
+            disabled={isBusy || isRecording || hasActiveSession}
+            onClick={startSession}
+            type="button"
+          >
             Start New Chat
           </button>
           <button
             className="secondary"
-            disabled={isBusy || isRecording || !hasSession}
+            disabled={isBusy || isRecording || !hasActiveSession}
             onClick={endSession}
             type="button"
           >
             End Chat
           </button>
+          <label className="adapter-selector">
+            <span>Model weights</span>
+            <select
+              aria-describedby="adapter-notice"
+              disabled={hasActiveSession || isBusy || isRecording}
+              onChange={(event) => setSelectedAdapter(event.target.value)}
+              value={selectedAdapter}
+            >
+              <option value="">Base model (no adapter)</option>
+              {selectedAdapter && !loraAdapters.some((adapter) => adapter.name === selectedAdapter) && (
+                <option value={selectedAdapter}>{selectedAdapter}</option>
+              )}
+              {loraAdapters.map((adapter) => (
+                <option disabled={!adapter.valid} key={adapter.name} value={adapter.name}>
+                  {adapter.name}{adapter.loaded ? ' (loaded)' : ''}{adapter.valid ? '' : ' (unavailable)'}
+                </option>
+              ))}
+            </select>
+            <small id="adapter-notice">
+              {hasActiveSession ? 'End the active chat to change weights' : adapterNotice}
+            </small>
+          </label>
           <div className="mode-toggle" role="group" aria-label="Input mode">
             <button
               className={mode === 'text' ? 'active' : ''}

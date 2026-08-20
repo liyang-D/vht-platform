@@ -12,17 +12,13 @@ import orchestrator_client
 
 
 SESSION_COOKIE_NAME = "simple_chat_session_id"
-DEFAULT_CORS_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
 
 
 def get_cors_origins() -> list[str]:
     raw_origins = os.getenv("SIMPLE_CHAT_CORS_ALLOW_ORIGINS", "")
 
     if not raw_origins.strip():
-        return DEFAULT_CORS_ORIGINS
+        return []
 
     return [
         origin.strip()
@@ -57,6 +53,7 @@ class SendMessageRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     response_modality: str = "text"
+    lora_adapter: str | None = None
 
 
 def require_session_id(session_id: str | None) -> str:
@@ -139,14 +136,52 @@ def health_check():
 
 
 @app.post("/api/sessions")
-async def create_session(request: CreateSessionRequest, response: Response):
+async def create_session(
+    request: CreateSessionRequest,
+    response: Response,
+    simple_chat_session_id: str | None = Cookie(default=None),
+):
     try:
+        if simple_chat_session_id:
+            try:
+                current_session = await orchestrator_client.get_session(
+                    simple_chat_session_id
+                )
+            except orchestrator_client.OrchestratorClientError as e:
+                if e.status_code != 404:
+                    raise
+            else:
+                if not current_session.get("summary"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="End the active chat before starting a new one.",
+                    )
+
         payload = await orchestrator_client.create_session(
-            task_config=flow.build_chat_task_config(),
+            task_config=flow.build_chat_task_config(request.lora_adapter),
             response_modality=request.response_modality,
         )
         set_session_cookie(response, payload["session_id"])
         return public_session_payload(payload)
+    except orchestrator_client.OrchestratorClientError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@app.get("/api/loras")
+async def list_lora_adapters():
+    try:
+        payload = await orchestrator_client.list_lora_adapters()
+        return {
+            "adapters": [
+                {
+                    "name": adapter.get("name"),
+                    "loaded": adapter.get("loaded"),
+                    "valid": adapter.get("valid", False),
+                    "error": adapter.get("error"),
+                }
+                for adapter in payload.get("adapters", [])
+            ]
+        }
     except orchestrator_client.OrchestratorClientError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 

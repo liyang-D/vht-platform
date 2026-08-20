@@ -35,7 +35,7 @@ ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS = int(
     os.getenv("ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS", "4")
 )
 ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS = int(
-    os.getenv("ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS", "2")
+    os.getenv("ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS", "1")
 )
 ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS = int(
     os.getenv("ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS", "1")
@@ -402,12 +402,13 @@ def extract_usage(response: Any) -> dict[str, Any]:
 def call_llm(
     prompt: str,
     priority: int = 100,
+    model: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     client = get_llm_client()
 
     with LLM_PRIORITY_GATE.acquire(priority):
         response = client.chat.completions.create(
-            model=LLM_MODEL,
+            model=model or LLM_MODEL,
             messages=[
                 {
                     "role": "user",
@@ -428,6 +429,7 @@ def call_llm(
 def summarise_session(
     conversation_text: str,
     priority: int = 100,
+    model: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     prompt = f"""
 Summarise the following conversation clearly and concisely.
@@ -441,7 +443,7 @@ Conversation:
 {conversation_text}
 """.strip()
 
-    return call_llm(prompt, priority=priority)
+    return call_llm(prompt, priority=priority, model=model)
 
 
 def transcribe_audio(

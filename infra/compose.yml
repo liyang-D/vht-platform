@@ -37,6 +37,11 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-openai-compatible}
       LLM_API_KEY: ${LLM_API_KEY:-EMPTY}
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
+      LLM_RUNTIME_URL: ${LLM_RUNTIME_URL:-http://llm:8000}
+      LLM_MODEL_REVISION: ${LLM_MODEL_REVISION:-0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe}
+      LLM_MAX_LORA_RANK: ${LLM_MAX_LORA_RANK:-16}
+      LLM_LORA_ROOT: /models/loras
+      LORA_RUNTIME_TIMEOUT_SECONDS: ${LORA_RUNTIME_TIMEOUT_SECONDS:-30}
       ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS:-4}
       ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS:-1}
       ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS:-1}
@@ -56,12 +61,17 @@ services:
       TTS_MODEL: ${TTS_MODEL:-chatterbox-turbo}
       CHATTERBOX_TTS_HTTP_URL: ${CHATTERBOX_TTS_HTTP_URL:-http://tts:8000}
       CHATTERBOX_TTS_VOICE: ${CHATTERBOX_TTS_VOICE:-default}
+      CHATTERBOX_TTS_MIME_TYPE: ${CHATTERBOX_TTS_MIME_TYPE:-audio/wav}
       RIVA_TTS_HTTP_URL: ${RIVA_TTS_HTTP_URL:-http://tts-riva:9000}
       RIVA_TTS_LANGUAGE: ${RIVA_TTS_LANGUAGE:-en-US}
       RIVA_TTS_VOICE: ${RIVA_TTS_VOICE:-Magpie-Multilingual.EN-US.Aria}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      DEEPGRAM_API_BASE_URL: ${DEEPGRAM_API_BASE_URL:-https://api.deepgram.com/v1}
       DEEPGRAM_ASR_MODEL: ${DEEPGRAM_ASR_MODEL:-nova-3}
       DEEPGRAM_TTS_MODEL: ${DEEPGRAM_TTS_MODEL:-aura-2-thalia-en}
+      RIVA_TTS_MIME_TYPE: ${RIVA_TTS_MIME_TYPE:-audio/wav}
+    volumes:
+      - ../services/runtime/vllm/loras:/models/loras:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -84,12 +94,15 @@ services:
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       HF_HOME: /root/.cache/huggingface
+      VLLM_ALLOW_RUNTIME_LORA_UPDATING: "True"
     volumes:
       - huggingface_cache:/root/.cache/huggingface
       - ../services/runtime/vllm/loras:/models/loras:ro
     command:
       - --model
       - ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
+      - --revision
+      - ${LLM_MODEL_REVISION:-0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe}
       - --host
       - 0.0.0.0
       - --port
@@ -97,6 +110,12 @@ services:
       - --scheduling-policy
       - priority
       - --enable-lora
+      - --max-lora-rank
+      - ${LLM_MAX_LORA_RANK:-16}
+      - --max-loras
+      - ${LLM_MAX_LORAS:-4}
+      - --max-cpu-loras
+      - ${LLM_MAX_CPU_LORAS:-4}
       - --gpu-memory-utilization
       - ${LLM_GPU_MEMORY_UTILIZATION:-0.65}
       - --max-model-len
@@ -235,12 +254,26 @@ services:
     build:
       context: ..
       dockerfile: apps/simple-chat/frontend/Dockerfile
+      args:
+        VITE_APP_BASE_PATH: /chat/
     environment:
       BACKEND_UPSTREAM: http://simple-chat-backend:8010
       BACKEND_PROXY_TIMEOUT: ${BACKEND_PROXY_TIMEOUT:-300s}
     depends_on:
       simple-chat-backend:
         condition: service_started
+    expose:
+      - "80"
+
+  gateway:
+    image: nginx:1.27-alpine
+    depends_on:
+      simple-chat-frontend:
+        condition: service_started
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
 
 volumes:
   postgres_data:
