@@ -29,12 +29,23 @@ CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     access_key_id UUID NOT NULL REFERENCES access_keys(id) ON DELETE RESTRICT,
+    model_weights TEXT NOT NULL,
     task_config JSONB,
     runtime_state JSONB,
     summary TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE sessions
+ADD COLUMN IF NOT EXISTS model_weights TEXT;
+
+UPDATE sessions
+SET model_weights = 'legacy-unknown'
+WHERE model_weights IS NULL OR BTRIM(model_weights) = '';
+
+ALTER TABLE sessions
+ALTER COLUMN model_weights SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS turns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

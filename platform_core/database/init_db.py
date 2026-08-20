@@ -22,7 +22,7 @@ def run_sql_file(cursor, path: Path) -> None:
 
 def seed_defaults(cursor) -> None:
     project_name = os.getenv("DEFAULT_PROJECT_NAME", "Mini Project Template")
-    access_key = os.getenv("SIMPLE_CHAT_ACCESS_KEY", "dev-template-key")
+    access_key = os.getenv("APP_ACCESS_KEY", "dev-template-key")
 
     cursor.execute(
         """

@@ -33,6 +33,7 @@ class CreateSessionRequest(BaseModel):
 class CreateSessionResponse(BaseModel):
     session_id: str
     project_id: str
+    model_weights: str
     message: str
     opening_message: str
     audio_base64: str | None = None
@@ -104,6 +105,7 @@ class SessionTurn(BaseModel):
 class GetSessionResponse(BaseModel):
     session_id: str
     project_id: str
+    model_weights: str
     summary: str | None = None
     task_config: dict[str, Any]
     runtime_state: dict[str, Any] | None = None
@@ -114,10 +116,6 @@ class GetSessionResponse(BaseModel):
 class EndSessionResponse(BaseModel):
     session_id: str
     summary: str
-
-
-class ErrorResponse(BaseModel):
-    detail: str
 
 
 class LoraAdapterResponse(BaseModel):

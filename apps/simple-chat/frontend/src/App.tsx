@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
+import './SimpleChat.css'
+import ScenarioDialog from "./ScenarioDialog"
 
 type ChatMode = 'text' | 'voice'
 
@@ -24,8 +26,11 @@ type StoredSessionMessage = {
 
 type GetSessionResponse = {
   summary: string | null
+  model_weights: string
   task_config: {
     lora_adapter?: string | null
+    role?: string
+    instructions?: string
   }
   messages: StoredSessionMessage[]
 }
@@ -55,8 +60,16 @@ type EndSessionResponse = {
   summary: string
 }
 
+type Scenario = {
+  name: string
+  role: string
+  instructions: string
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   ?? import.meta.env.BASE_URL.replace(/\/$/, '')
+const HISTORY_URL = `${import.meta.env.BASE_URL}history`
+const EVALUATION_URL = "/evaluation/"
 const RETRYABLE_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 
 function messageId() {
@@ -228,6 +241,12 @@ function App() {
   const [loraAdapters, setLoraAdapters] = useState<LoraAdapter[]>([])
   const [selectedAdapter, setSelectedAdapter] = useState('')
   const [adapterNotice, setAdapterNotice] = useState('Loading model options...')
+  const [defaultScenario, setDefaultScenario] = useState<Scenario | null>(null)
+  const [scenarioMode, setScenarioMode] = useState<"default" | "custom">("default")
+  const [customRole, setCustomRole] = useState("")
+  const [customInstructions, setCustomInstructions] = useState("")
+  const [activeScenario, setActiveScenario] = useState<Scenario | null>(null)
+  const [isScenarioOpen, setIsScenarioOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
@@ -270,6 +289,11 @@ function App() {
           setSummary(payload.summary)
           setIsEnded(Boolean(payload.summary))
           setSelectedAdapter(payload.task_config.lora_adapter ?? '')
+          setActiveScenario({
+            name: "Session scenario",
+            role: payload.task_config.role ?? "",
+            instructions: payload.task_config.instructions ?? "",
+          })
           setStatus(payload.summary ? 'Session ended' : 'Ready')
         }
       } catch (error) {
@@ -309,8 +333,26 @@ function App() {
       }
     }
 
+    async function loadDefaultScenario() {
+      try {
+        const response = await fetchWithRetry(API_BASE_URL + "/api/scenario")
+        if (!response.ok) throw new Error(await readError(response))
+        const payload = (await response.json()) as { default: Scenario }
+        if (!ignore) {
+          setDefaultScenario(payload.default)
+          setCustomRole(payload.default.role)
+          setCustomInstructions(payload.default.instructions)
+        }
+      } catch (error) {
+        if (!ignore) {
+          setStatus(error instanceof Error ? error.message : "Could not load scenario")
+        }
+      }
+    }
+
     restoreCurrentSession()
     loadLoraAdapters()
+    loadDefaultScenario()
 
     return () => {
       ignore = true
@@ -320,6 +362,12 @@ function App() {
   }, [])
 
   const hasActiveSession = hasSession && !isEnded
+  const configuredScenario: Scenario | null = defaultScenario && scenarioMode === "custom"
+    ? { name: "Custom scenario", role: customRole, instructions: customInstructions }
+    : defaultScenario
+  const displayedScenario = hasActiveSession && activeScenario
+    ? activeScenario
+    : configuredScenario
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -427,6 +475,9 @@ function App() {
         body: JSON.stringify({
           response_modality: mode,
           lora_adapter: selectedAdapter || null,
+          scenario: scenarioMode === "custom"
+            ? { role: customRole, instructions: customInstructions }
+            : null,
         }),
       })
 
@@ -438,6 +489,7 @@ function App() {
 
       setHasSession(true)
       setIsEnded(false)
+      setActiveScenario(configuredScenario)
       setMessages([
         {
           id: messageId(),
@@ -696,18 +748,32 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="chat-panel" aria-label="Simple chat">
+      <section className="chat-panel" aria-label="Simple Chat">
         <header className="chat-header">
           <div>
-            <h1>Simple Chat</h1>
+            <div className="title-line">
+              <h1>Simple Chat</h1>
+            </div>
             <p>{status}</p>
           </div>
-          <div className="session-chip">{hasActiveSession ? 'Connected' : 'No active chat'}</div>
+          <div className="header-actions">
+            <a className="nav-button secondary" href={HISTORY_URL}>Session history</a>
+            <a className="nav-button secondary" href={EVALUATION_URL}>Evaluation</a>
+            <button
+              className="nav-button secondary scenario-trigger"
+              disabled={!displayedScenario}
+              onClick={() => setIsScenarioOpen(true)}
+              type="button"
+            >
+              Scenario
+            </button>
+            <div className="session-chip">{hasActiveSession ? 'Connected' : 'No active chat'}</div>
+          </div>
         </header>
 
         <section className="session-controls" aria-label="Session controls">
           <button
-            disabled={isBusy || isRecording || hasActiveSession}
+            disabled={isBusy || isRecording || hasActiveSession || (scenarioMode === "custom" && (!customRole.trim() || !customInstructions.trim()))}
             onClick={startSession}
             type="button"
           >
@@ -836,6 +902,19 @@ function App() {
           </section>
         )}
       </section>
+      <ScenarioDialog
+        activeScenario={activeScenario}
+        customInstructions={customInstructions}
+        customRole={customRole}
+        defaultScenario={defaultScenario}
+        isActiveSession={hasActiveSession}
+        isOpen={isScenarioOpen}
+        mode={scenarioMode}
+        onClose={() => setIsScenarioOpen(false)}
+        onCustomInstructionsChange={setCustomInstructions}
+        onCustomRoleChange={setCustomRole}
+        onModeChange={setScenarioMode}
+      />
     </main>
   )
 }

@@ -1,0 +1,24 @@
+.scenario-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(10, 16, 28, .58); backdrop-filter: blur(4px); }
+.scenario-dialog { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: 21px; background: var(--surface); box-shadow: 0 30px 90px rgba(10, 16, 28, .35); }
+.scenario-dialog > header, .scenario-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.scenario-dialog > header span { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.scenario-dialog h2 { margin: 4px 0 0; font-size: 19px; }
+.scenario-dialog button { min-height: 36px; border: 0; border-radius: 7px; padding: 0 12px; color: #fff; background: #111827; font-weight: 700; font-size: 11px; }
+.scenario-dialog button.secondary { border: 1px solid var(--line); color: var(--ink); background: var(--surface-soft); }
+.scenario-dialog > header > button { min-width: 36px; padding: 0; color: var(--muted); background: var(--surface-soft); font-size: 20px; }
+.scenario-mode-toggle { display: inline-flex; margin-top: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
+.scenario-mode-toggle button { border-radius: 0; color: var(--muted); background: var(--surface-soft); }
+.scenario-mode-toggle button + button { border-left: 1px solid var(--line); }
+.scenario-mode-toggle button.active { color: #fff; background: #4b5568; }
+.scenario-mode-toggle button:disabled { cursor: not-allowed; }
+.scenario-note { margin: 14px 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.scenario-field { display: grid; gap: 6px; margin-top: 13px; }
+.scenario-field > span { color: var(--ink); font-size: 11px; font-weight: 750; }
+.scenario-field textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; color: var(--ink); background: var(--surface-soft); font: inherit; font-size: 12px; line-height: 1.55; }
+.scenario-field textarea[readonly] { color: #586274; background: #f0f2f6; }
+.scenario-dialog > footer { justify-content: flex-end; margin-top: 18px; }
+
+@media (max-width: 560px) {
+  .scenario-backdrop { padding: 0; }
+  .scenario-dialog { min-height: 100vh; max-height: 100vh; border: 0; border-radius: 0; }
+}

@@ -68,6 +68,7 @@ def get_access_key_with_project(key_value: str) -> dict[str, Any] | None:
 def create_session_record(
     project_id: str,
     access_key_id: str,
+    model_weights: str,
     task_config: dict[str, Any],
     runtime_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -75,11 +76,12 @@ def create_session_record(
         INSERT INTO sessions (
             project_id,
             access_key_id,
+            model_weights,
             task_config,
             runtime_state
         )
-        VALUES (%s, %s, %s, %s)
-        RETURNING id, project_id, access_key_id, task_config, runtime_state, summary, created_at, updated_at;
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id, project_id, access_key_id, model_weights, task_config, runtime_state, summary, created_at, updated_at;
     """
 
     with get_connection() as conn:
@@ -89,6 +91,7 @@ def create_session_record(
                 (
                     project_id,
                     access_key_id,
+                    model_weights,
                     psycopg2.extras.Json(task_config),
                     psycopg2.extras.Json(runtime_state)
                     if runtime_state is not None
@@ -105,6 +108,7 @@ def get_session_with_project_and_key(session_id: str) -> dict[str, Any] | None:
             s.id AS session_id,
             s.project_id,
             s.access_key_id,
+            s.model_weights,
             s.task_config,
             s.runtime_state,
             s.summary,

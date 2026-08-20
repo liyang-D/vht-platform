@@ -328,6 +328,7 @@ def create_new_session(
     session_record = db.create_session_record(
         project_id=str(access_record["project_id"]),
         access_key_id=str(access_record["access_key_id"]),
+        model_weights=llm_model,
         task_config=task_config.model_dump(),
         runtime_state=runtime_state_payload,
     )
@@ -379,6 +380,7 @@ def create_new_session(
     payload = {
         "session_id": str(session_record["id"]),
         "project_id": str(session_record["project_id"]),
+        "model_weights": session_record["model_weights"],
         "message": "Session created successfully.",
         "opening_message": opening_text,
         "audio_base64": None,
@@ -1071,6 +1073,7 @@ def get_existing_session(session_id: str) -> dict[str, Any]:
     return {
         "session_id": session_id,
         "project_id": str(session_record["project_id"]),
+        "model_weights": session_record["model_weights"],
         "summary": session_record.get("summary"),
         "task_config": db.serialise_task_config(session_record.get("task_config")),
         "runtime_state": serialise_json(session_record.get("runtime_state")),

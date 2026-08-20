@@ -24,6 +24,10 @@ services:
     ports:
       - "127.0.0.1:${SIMPLE_CHAT_BACKEND_PORT:-8010}:8010"
 
+  evaluation-backend:
+    ports:
+      - "127.0.0.1:${EVALUATION_BACKEND_PORT:-8050}:8050"
+
   gateway:
     ports:
       # TEMPORARY: campus HTTP access for presentations until HTTPS/TLS on 443 is ready.

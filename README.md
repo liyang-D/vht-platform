@@ -1,8 +1,7 @@
 # VHT Platform
 
-Monorepo prototype for VHT services. The repo now treats each runnable unit as a
-Docker service, while keeping unfinished modules as placeholders until their
-runtime contracts are clear.
+Monorepo for VHT services. Each runnable unit is isolated as a Docker
+service, with shared contracts kept in focused top-level modules.
 
 ## Runtime Shape
 
@@ -12,15 +11,15 @@ runtime contracts are clear.
 - `asr`: local NVIDIA Speech NIM ASR runtime, defaulting to `parakeet-1-1b-ctc-en-us`.
 - `tts`: local Chatterbox-Turbo English TTS runtime.
 - `orchestrator`: internal API used by apps.
-- `apps/simple-chat/backend`: internal use-case API.
-- `apps/simple-chat/frontend`: internal frontend; proxies its `/api` requests to
-  its backend.
-- `gateway`: the single HTTP entry point; routes `/chat/` to simple-chat and is
-  the place to add future app mappings.
+- `apps/simple-chat`: regular text/voice chat with model-weights selection and history.
+- `apps/evaluation`: side-by-side model comparison, paired live sessions, and turn replay.
+- `gateway`: the single HTTP entry point; routes `/chat/` and `/evaluation/` to
+  their independent app frontends.
 
-The gateway and all dev inspection ports bind to `127.0.0.1`, so Docker does
-not expose them to the LAN. Application containers otherwise communicate only
-over the Compose network.
+Production and inspection ports bind to `127.0.0.1`. The development gateway
+currently has a temporary campus-facing binding for presentations; firewall or
+SSH tunnelling can still be used as the external access boundary. Application
+containers otherwise communicate only over the Compose network.
 
 ## Environments
 
@@ -33,7 +32,9 @@ cp infra/env/prod.example.env infra/env/prod.env
 
 Real `infra/env/*.env` files are ignored by git. Dev and prod use the same
 Compose files and Dockerfiles, but different project names, env files, ports,
-secrets, and Postgres volumes.
+secrets, and Postgres volumes. `APP_ACCESS_KEY` is shared by the two app
+backends, while app-specific timeout settings use `SIMPLE_CHAT_` and
+`EVALUATION_` prefixes.
 After changing Compose environment variables, verify both example files and
 local env files with:
 
@@ -56,7 +57,7 @@ without custom language model artifacts and can later point to domain-specific
 ASR runtimes. Future domain ASR artifacts live under
 `services/runtime/asr/domains/<domain>/`. ASR NIM is configured with `mode=all`
 so the runtime can expose both offline and streaming modes; the current
-simple-chat app uploads complete audio files and defaults its orchestrator
+Simple Chat uploads complete audio files and defaults its orchestrator
 request to offline transcription.
 Projects default to priority `30`; lower numbers are scheduled earlier, combined
 with the orchestrator's request-type priority before calling local runtimes.
@@ -92,8 +93,8 @@ docker compose --env-file infra/env/prod.env -p vht-prod -f infra/compose.yml -f
 
 ## Access The Web Gateway Over SSH
 
-The HTTP gateway listens only on the DGX loopback interface, on port `8088` by
-default. From another computer, create a local SSH forward:
+The HTTP gateway is available on DGX port `8088` by default; production binds
+it to loopback. From another computer, create a local SSH forward:
 
 ```bash
 ssh -N \
@@ -108,6 +109,26 @@ Keep that terminal open and browse to:
 ```text
 http://127.0.0.1:8080/chat/
 ```
+
+Simple Chat keeps the text/voice flow and model-weights selector; its history is
+at `/chat/history`. The separate model comparison workspace is available at:
+
+```text
+http://127.0.0.1:8080/evaluation/
+```
+
+Evaluation supports paired live turns, two-session history comparison, and
+replaying one session's user turns with different weights. Any of the three modes can
+export the two displayed sessions as a traceable JSON comparison once both are
+ended and contain complete user/model turns. Legacy sessions
+without recorded weights are excluded from both history views.
+
+Both apps use the shared patient-facing mental-health information scenario for
+new sessions. The Scenario control exposes that default and allows a custom
+role and instructions for the next session without changing the system
+default. A live Evaluation pair receives the same scenario on both sides, and
+replay copies the source session's scenario so the weights remain the intended
+comparison variable.
 
 The two port numbers are intentionally independent: `8080` is on the client
 computer and can be changed if it is already in use; `8088` is the loopback

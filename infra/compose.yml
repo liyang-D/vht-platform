@@ -20,7 +20,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       DEFAULT_PROJECT_NAME: ${DEFAULT_PROJECT_NAME:-Mini Project Template}
-      SIMPLE_CHAT_ACCESS_KEY: ${SIMPLE_CHAT_ACCESS_KEY:-dev-template-key}
+      APP_ACCESS_KEY: ${APP_ACCESS_KEY:-dev-template-key}
     depends_on:
       postgres:
         condition: service_healthy
@@ -239,12 +239,15 @@ services:
       context: ..
       dockerfile: apps/simple-chat/backend/Dockerfile
     environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       ORCHESTRATOR_URL: http://orchestrator:8000
-      SIMPLE_CHAT_ACCESS_KEY: ${SIMPLE_CHAT_ACCESS_KEY:-dev-template-key}
+      APP_ACCESS_KEY: ${APP_ACCESS_KEY:-dev-template-key}
       SIMPLE_CHAT_CORS_ALLOW_ORIGINS: ${SIMPLE_CHAT_CORS_ALLOW_ORIGINS:-}
       SIMPLE_CHAT_COOKIE_SECURE: ${SIMPLE_CHAT_COOKIE_SECURE:-false}
       SIMPLE_CHAT_ORCHESTRATOR_TIMEOUT_SECONDS: ${SIMPLE_CHAT_ORCHESTRATOR_TIMEOUT_SECONDS:-300}
     depends_on:
+      postgres:
+        condition: service_healthy
       orchestrator:
         condition: service_started
     expose:
@@ -258,9 +261,41 @@ services:
         VITE_APP_BASE_PATH: /chat/
     environment:
       BACKEND_UPSTREAM: http://simple-chat-backend:8010
-      BACKEND_PROXY_TIMEOUT: ${BACKEND_PROXY_TIMEOUT:-300s}
+      BACKEND_PROXY_TIMEOUT: ${SIMPLE_CHAT_BACKEND_PROXY_TIMEOUT:-300s}
     depends_on:
       simple-chat-backend:
+        condition: service_started
+    expose:
+      - "80"
+
+  evaluation-backend:
+    build:
+      context: ..
+      dockerfile: apps/evaluation/backend/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
+      ORCHESTRATOR_URL: http://orchestrator:8000
+      APP_ACCESS_KEY: ${APP_ACCESS_KEY:-dev-template-key}
+      EVALUATION_ORCHESTRATOR_TIMEOUT_SECONDS: ${EVALUATION_ORCHESTRATOR_TIMEOUT_SECONDS:-600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+    expose:
+      - "8050"
+
+  evaluation-frontend:
+    build:
+      context: ..
+      dockerfile: apps/evaluation/frontend/Dockerfile
+      args:
+        VITE_APP_BASE_PATH: /evaluation/
+    environment:
+      BACKEND_UPSTREAM: http://evaluation-backend:8050
+      BACKEND_PROXY_TIMEOUT: ${EVALUATION_BACKEND_PROXY_TIMEOUT:-600s}
+    depends_on:
+      evaluation-backend:
         condition: service_started
     expose:
       - "80"
@@ -269,6 +304,8 @@ services:
     image: nginx:1.27-alpine
     depends_on:
       simple-chat-frontend:
+        condition: service_started
+      evaluation-frontend:
         condition: service_started
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro

@@ -2,13 +2,15 @@ import os
 import inspect
 from typing import Any
 
-from fastapi import Cookie, FastAPI, HTTPException, Request, Response
+from fastapi import Cookie, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.datastructures import FormData
 
 import flow
+import history_repository
 import orchestrator_client
+from shared.scenarios import default_scenario
 
 
 SESSION_COOKIE_NAME = "simple_chat_session_id"
@@ -51,9 +53,15 @@ class SendMessageRequest(BaseModel):
     response_modality: str = "text"
 
 
+class ScenarioOverride(BaseModel):
+    role: str = Field(min_length=1, max_length=2000)
+    instructions: str = Field(min_length=1, max_length=8000)
+
+
 class CreateSessionRequest(BaseModel):
     response_modality: str = "text"
     lora_adapter: str | None = None
+    scenario: ScenarioOverride | None = None
 
 
 def require_session_id(session_id: str | None) -> str:
@@ -135,6 +143,29 @@ def health_check():
     }
 
 
+@app.get("/api/scenario")
+def get_default_scenario():
+    return {"default": default_scenario()}
+
+
+@app.get("/api/history")
+def list_history(
+    model_weights: list[str] = Query(default=[]),
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    try:
+        return history_repository.list_session_history(
+            access_key=orchestrator_client.ACCESS_KEY,
+            model_weights=model_weights,
+            limit=limit,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not load session history: {e}",
+        ) from e
+
+
 @app.post("/api/sessions")
 async def create_session(
     request: CreateSessionRequest,
@@ -158,7 +189,10 @@ async def create_session(
                     )
 
         payload = await orchestrator_client.create_session(
-            task_config=flow.build_chat_task_config(request.lora_adapter),
+            task_config=flow.build_chat_task_config(
+                request.lora_adapter,
+                request.scenario.model_dump() if request.scenario else None,
+            ),
             response_modality=request.response_modality,
         )
         set_session_cookie(response, payload["session_id"])

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://127.0.0.1:8000")
-ACCESS_KEY = os.getenv("SIMPLE_CHAT_ACCESS_KEY", "dev-template-key")
+ACCESS_KEY = os.getenv("APP_ACCESS_KEY", "dev-template-key")
 ORCHESTRATOR_TIMEOUT_SECONDS = float(
     os.getenv("SIMPLE_CHAT_ORCHESTRATOR_TIMEOUT_SECONDS", "300")
 )
