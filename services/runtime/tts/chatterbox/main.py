@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import tempfile
 import threading
@@ -17,11 +18,28 @@ DEVICE = os.getenv("CHATTERBOX_TTS_DEVICE", "cuda" if torch.cuda.is_available() 
 AUDIO_PROMPT_PATH = os.getenv("CHATTERBOX_TTS_AUDIO_PROMPT_PATH", "").strip()
 DEFAULT_VOICE = os.getenv("CHATTERBOX_TTS_VOICE", "default")
 MIME_TYPE = "audio/wav"
+FATAL_CUDA_ERROR_MARKERS = (
+    "cuda error",
+    "no cuda gpus are available",
+    "device-side assert",
+)
 
 app = FastAPI(title="Chatterbox TTS Runtime")
 model: ChatterboxTurboTTS | None = None
 model_error: str | None = None
 generate_lock = threading.Lock()
+logger = logging.getLogger(__name__)
+
+
+def is_fatal_cuda_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in FATAL_CUDA_ERROR_MARKERS)
+
+
+def schedule_process_restart() -> None:
+    timer = threading.Timer(0.5, os._exit, args=(1,))
+    timer.daemon = True
+    timer.start()
 
 
 @app.on_event("startup")
@@ -40,8 +58,15 @@ def load_model() -> None:
 
 @app.get("/v1/health/ready")
 def ready() -> dict[str, Any]:
+    is_ready = model is not None and model_error is None
+    if not is_ready:
+        raise HTTPException(
+            status_code=503,
+            detail=model_error or "Chatterbox model is not ready.",
+        )
+
     return {
-        "ready": model is not None and model_error is None,
+        "ready": True,
         "model": MODEL_NAME,
         "device": DEVICE,
     }
@@ -75,6 +100,8 @@ async def synthesize(
     voice: str | None = Form(default=None),
     audio_prompt: UploadFile | None = File(default=None),
 ) -> Response:
+    global model_error
+
     if model is None:
         raise HTTPException(
             status_code=503,
@@ -102,6 +129,16 @@ async def synthesize(
         with generate_lock:
             wav = model.generate(requested_text, audio_prompt_path=prompt_path)
         audio_bytes = encode_wav(wav, model.sr)
+    except Exception as exc:
+        if is_fatal_cuda_error(exc):
+            model_error = f"CUDA runtime failure: {exc}"
+            logger.exception("Fatal CUDA failure during TTS synthesis; restarting runtime.")
+            schedule_process_restart()
+            raise HTTPException(
+                status_code=503,
+                detail="TTS CUDA runtime failed; the service is restarting.",
+            ) from exc
+        raise
     finally:
         if temp_path:
             Path(temp_path).unlink(missing_ok=True)

@@ -329,8 +329,24 @@ def post_with_retries(
             if response.status_code not in RETRYABLE_STATUS_CODES:
                 return response
 
+            response_detail = response.reason_phrase
+            try:
+                response_payload = response.json()
+                if isinstance(response_payload, dict):
+                    candidate_detail = response_payload.get("detail")
+                    if candidate_detail:
+                        response_detail = str(candidate_detail)
+            except (ValueError, json.JSONDecodeError):
+                candidate_detail = response.text.strip()
+                if candidate_detail:
+                    response_detail = candidate_detail
+
+            response_detail = response_detail[:500]
             last_error = httpx.HTTPStatusError(
-                "Retryable upstream status.",
+                (
+                    f"Upstream returned retryable status {response.status_code}: "
+                    f"{response_detail}"
+                ),
                 request=response.request,
                 response=response,
             )

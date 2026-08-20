@@ -164,6 +164,7 @@ services:
     build:
       context: ..
       dockerfile: services/runtime/tts/chatterbox/Dockerfile
+    restart: unless-stopped
     gpus: all
     shm_size: "4gb"
     environment:
