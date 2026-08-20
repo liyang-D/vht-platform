@@ -231,6 +231,9 @@ class ChatterboxHttpTTSService(TTSService):
         super().__init__(
             push_start_frame=True,
             push_stop_frames=True,
+            stop_frame_timeout_s=float(
+                os.getenv("SIMPLE_CHAT_REALTIME_TTS_STOP_FRAME_TIMEOUT_SECONDS", "30")
+            ),
             settings=TTSSettings(model="chatterbox-turbo", voice=voice),
         )
         self._url = f"{base_url.rstrip('/')}/v1/audio/synthesize"

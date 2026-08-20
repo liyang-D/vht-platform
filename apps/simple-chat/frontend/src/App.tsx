@@ -1291,6 +1291,36 @@ function App() {
                   />
                 </label>
                 <label>
+                  <span>VAD minimum volume</span>
+                  <input
+                    disabled={realtimeVoiceState !== 'disconnected'}
+                    max={1}
+                    min={0}
+                    onChange={(event) => setTurnTakingConfig((current) => ({
+                      ...current,
+                      vad_min_volume: Number(event.target.value),
+                    }))}
+                    step={0.05}
+                    type="number"
+                    value={turnTakingConfig.vad_min_volume}
+                  />
+                </label>
+                <label>
+                  <span>Speech start duration (s)</span>
+                  <input
+                    disabled={realtimeVoiceState !== 'disconnected'}
+                    max={2}
+                    min={0.05}
+                    onChange={(event) => setTurnTakingConfig((current) => ({
+                      ...current,
+                      vad_start_secs: Number(event.target.value),
+                    }))}
+                    step={0.05}
+                    type="number"
+                    value={turnTakingConfig.vad_start_secs}
+                  />
+                </label>
+                <label>
                   <span>Smart Turn max silence</span>
                   <input
                     disabled={realtimeVoiceState !== 'disconnected'}
