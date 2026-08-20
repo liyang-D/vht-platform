@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js'
 import type { BotLLMTextData, TranscriptData } from '@pipecat-ai/client-js'
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
-import { WebSocketTransport } from '@pipecat-ai/websocket-transport'
+import { WavMediaManager, WebSocketTransport } from '@pipecat-ai/websocket-transport'
 import './App.css'
 import './SimpleChat.css'
 import ScenarioDialog from "./ScenarioDialog"
@@ -590,8 +590,10 @@ function App() {
       const transport = kind === 'webrtc'
         ? new SmallWebRTCTransport({ iceServers: realtimeIceServers })
         : new WebSocketTransport({
-          recorderSampleRate: turnTakingConfig.audio_input_sample_rate,
-          playerSampleRate: turnTakingConfig.audio_output_sample_rate,
+          mediaManager: new WavMediaManager(
+            undefined,
+            turnTakingConfig.audio_input_sample_rate,
+          ),
         })
       const client = new PipecatClient({ transport, enableMic: true, enableCam: false })
       realtimeClientRef.current = client
@@ -658,7 +660,11 @@ function App() {
         setStatus(data?.message ?? 'Realtime voice error')
       })
 
-      await client.initDevices()
+      await withTimeout(
+        client.initDevices(),
+        8000,
+        `${kind === 'webrtc' ? 'WebRTC' : 'WebSocket'} audio device initialization timed out`,
+      )
       if (!isCurrent(client)) throw new Error('Connection cancelled')
       await applyRealtimeMicConstraints(client)
 
@@ -674,7 +680,11 @@ function App() {
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
         url.searchParams.set('turn_taking', JSON.stringify(turnTakingConfig))
         url.searchParams.set('speak_opening_message', String(speakOpeningMessage))
-        await client.connect({ wsUrl: url.toString() })
+        await withTimeout(
+          client.connect({ wsUrl: url.toString() }),
+          8000,
+          'WebSocket voice connection timed out',
+        )
       }
       if (!isCurrent(client)) throw new Error('Connection cancelled')
       setActiveRealtimeTransport(kind)
