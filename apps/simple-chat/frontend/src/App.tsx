@@ -103,9 +103,9 @@ const FALLBACK_TURN_TAKING_CONFIG: TurnTakingConfig = {
   min_words_to_interrupt: 3,
   use_interim_transcripts_for_interruptions: true,
   vad_confidence: 0.7,
-  vad_start_secs: 0.2,
+  vad_start_secs: 0.25,
   vad_stop_secs: 0.2,
-  vad_min_volume: 0.6,
+  vad_min_volume: 0.5,
   smart_turn_stop_secs: 3,
   smart_turn_pre_speech_ms: 500,
   smart_turn_max_duration_secs: 8,
@@ -317,6 +317,7 @@ function App() {
   const [realtimeIceServers, setRealtimeIceServers] = useState<RTCIceServer[]>([])
   const [realtimeTransportPreference, setRealtimeTransportPreference] = useState<RealtimeTransportPreference>('auto')
   const [activeRealtimeTransport, setActiveRealtimeTransport] = useState<RealtimeTransport | null>(null)
+  const [openingPending, setOpeningPending] = useState(false)
   const [webrtcConnectTimeoutMs, setWebrtcConnectTimeoutMs] = useState(5000)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -559,6 +560,7 @@ function App() {
     realtimeClientRef.current = null
     setInterimTranscript('')
     setActiveRealtimeTransport(null)
+    setOpeningPending(false)
 
     if (realtimeAudioRef.current) {
       realtimeAudioRef.current.srcObject = null
@@ -587,6 +589,8 @@ function App() {
     )
 
     const connectTransport = async (kind: RealtimeTransport) => {
+      let awaitingOpening = speakOpeningMessage
+      let openingFallbackTimer: number | null = null
       const transport = kind === 'webrtc'
         ? new SmallWebRTCTransport({ iceServers: realtimeIceServers })
         : new WebSocketTransport({
@@ -595,8 +599,22 @@ function App() {
             turnTakingConfig.audio_input_sample_rate,
           ),
         })
-      const client = new PipecatClient({ transport, enableMic: true, enableCam: false })
+      const client = new PipecatClient({
+        transport,
+        enableMic: !speakOpeningMessage,
+        enableCam: false,
+      })
       realtimeClientRef.current = client
+
+      const releaseOpeningMic = () => {
+        if (!awaitingOpening || !isCurrent(client)) return
+        awaitingOpening = false
+        if (openingFallbackTimer) window.clearTimeout(openingFallbackTimer)
+        openingFallbackTimer = null
+        setOpeningPending(false)
+        client.enableMic(true)
+        window.setTimeout(() => { void applyRealtimeMicConstraints(client) }, 0)
+      }
 
       client.on(RTVIEvent.TrackStarted, (track, participant) => {
         if (!isCurrent(client) || track.kind !== 'audio') return
@@ -637,6 +655,7 @@ function App() {
       })
       client.on(RTVIEvent.BotStartedSpeaking, () => {
         if (!isCurrent(client)) return
+        releaseOpeningMic()
         updateRealtimeVoiceState('speaking')
         setStatus('Speaking — you can interrupt')
       })
@@ -648,8 +667,10 @@ function App() {
       })
       client.on(RTVIEvent.Disconnected, () => {
         if (!isCurrent(client)) return
+        if (openingFallbackTimer) window.clearTimeout(openingFallbackTimer)
         realtimeClientRef.current = null
         setActiveRealtimeTransport(null)
+        setOpeningPending(false)
         updateRealtimeVoiceState('disconnected')
         setInterimTranscript('')
         setStatus('Realtime voice disconnected')
@@ -688,8 +709,21 @@ function App() {
       }
       if (!isCurrent(client)) throw new Error('Connection cancelled')
       setActiveRealtimeTransport(kind)
-      updateRealtimeVoiceState('listening')
-      setStatus(`Listening continuously (${kind === 'webrtc' ? 'WebRTC' : 'WebSocket'})`)
+      if (awaitingOpening) {
+        setOpeningPending(true)
+        updateRealtimeVoiceState('thinking')
+        setStatus('Preparing opening message...')
+        openingFallbackTimer = window.setTimeout(() => {
+          if (!isCurrent(client) || !awaitingOpening) return
+          releaseOpeningMic()
+          updateRealtimeVoiceState('listening')
+          setStatus('Opening message unavailable — listening continuously')
+        }, 15000)
+      }
+      if (!speakOpeningMessage) {
+        updateRealtimeVoiceState('listening')
+        setStatus(`Listening continuously (${kind === 'webrtc' ? 'WebRTC' : 'WebSocket'})`)
+      }
     }
 
     try {
@@ -723,6 +757,7 @@ function App() {
         realtimeClientRef.current = null
         if (failedClient) await safelyDisconnectClient(failedClient)
         setActiveRealtimeTransport(null)
+        setOpeningPending(false)
         updateRealtimeVoiceState('disconnected')
         setStatus(error instanceof Error ? error.message : 'Could not connect realtime voice')
       }
@@ -1225,7 +1260,9 @@ function App() {
               <div>
                 <strong>{realtimeVoiceState}</strong>
                 <small>
-                  {interimTranscript || (activeRealtimeTransport
+                  {interimTranscript || (openingPending
+                    ? 'Preparing opening message; mic opens when playback starts'
+                    : activeRealtimeTransport
                     ? `${activeRealtimeTransport === 'webrtc' ? 'WebRTC' : 'WebSocket'} · ${realtimeVoiceState === 'speaking'
                       ? `say ${turnTakingConfig.min_words_to_interrupt}+ words to interrupt`
                       : 'mic stays open; Smart Turn handles natural pauses'}`

@@ -81,9 +81,9 @@ class TurnTakingConfig(BaseModel):
     use_interim_transcripts_for_interruptions: bool = True
 
     vad_confidence: float = Field(default=0.7, ge=0.1, le=0.99)
-    vad_start_secs: float = Field(default=0.2, ge=0.05, le=2.0)
+    vad_start_secs: float = Field(default=0.25, ge=0.05, le=2.0)
     vad_stop_secs: float = Field(default=0.2, ge=0.05, le=2.0)
-    vad_min_volume: float = Field(default=0.6, ge=0.0, le=1.0)
+    vad_min_volume: float = Field(default=0.5, ge=0.0, le=1.0)
 
     smart_turn_stop_secs: float = Field(default=3.0, ge=0.5, le=10.0)
     smart_turn_pre_speech_ms: float = Field(default=500.0, ge=0.0, le=2000.0)
@@ -110,9 +110,9 @@ class TurnTakingConfig(BaseModel):
                 "TURN_TAKING_USE_INTERIM_TRANSCRIPTS", True
             ),
             vad_confidence=float(os.getenv("TURN_TAKING_VAD_CONFIDENCE", "0.7")),
-            vad_start_secs=float(os.getenv("TURN_TAKING_VAD_START_SECS", "0.2")),
+            vad_start_secs=float(os.getenv("TURN_TAKING_VAD_START_SECS", "0.25")),
             vad_stop_secs=float(os.getenv("TURN_TAKING_VAD_STOP_SECS", "0.2")),
-            vad_min_volume=float(os.getenv("TURN_TAKING_VAD_MIN_VOLUME", "0.6")),
+            vad_min_volume=float(os.getenv("TURN_TAKING_VAD_MIN_VOLUME", "0.5")),
             smart_turn_stop_secs=float(
                 os.getenv("TURN_TAKING_SMART_TURN_STOP_SECS", "3.0")
             ),
