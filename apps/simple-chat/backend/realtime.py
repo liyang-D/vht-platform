@@ -43,7 +43,8 @@ from pipecat.services.nvidia.stt import NvidiaSTTService
 from pipecat.services.settings import LLMSettings, TTSSettings
 from pipecat.services.tts_service import TTSService
 from pipecat.transcriptions.language import Language
-from pipecat.transports.base_transport import TransportParams
+from pipecat.serializers.protobuf import ProtobufFrameSerializer
+from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.request_handler import (
     IceCandidate,
@@ -52,6 +53,10 @@ from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCRequestHandler,
 )
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.transports.websocket.fastapi import (
+    FastAPIWebsocketParams,
+    FastAPIWebsocketTransport,
+)
 from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
@@ -323,7 +328,7 @@ _session_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 async def _run_voice_pipeline(
-    connection: SmallWebRTCConnection,
+    transport: BaseTransport,
     *,
     session_id: str,
     opening_message: str,
@@ -333,17 +338,6 @@ async def _run_voice_pipeline(
         total=float(os.getenv("SIMPLE_CHAT_REALTIME_TTS_TIMEOUT_SECONDS", "300"))
     )
     async with aiohttp.ClientSession(timeout=timeout) as http_session:
-        transport = SmallWebRTCTransport(
-            webrtc_connection=connection,
-            params=TransportParams(
-                audio_in_enabled=True,
-                audio_out_enabled=True,
-                audio_in_sample_rate=config.audio_input_sample_rate,
-                audio_out_sample_rate=config.audio_output_sample_rate,
-                audio_out_10ms_chunks=config.output_audio_chunk_ms // 10,
-            ),
-        )
-
         vad = SileroVADAnalyzer(
             sample_rate=config.audio_input_sample_rate,
             params=VADParams(
@@ -471,6 +465,13 @@ def _track_task(task: asyncio.Task[None], session_id: str) -> None:
     task.add_done_callback(done)
 
 
+async def _cancel_session_pipeline(session_id: str) -> None:
+    previous_task = _session_tasks.get(session_id)
+    if previous_task and previous_task is not asyncio.current_task() and not previous_task.done():
+        previous_task.cancel()
+        await asyncio.gather(previous_task, return_exceptions=True)
+
+
 async def handle_offer(payload: dict[str, Any], session_id: str) -> dict[str, str] | None:
     session = await orchestrator_client.get_session(session_id)
     request = SmallWebRTCRequest.from_dict(dict(payload))
@@ -483,14 +484,22 @@ async def handle_offer(payload: dict[str, Any], session_id: str) -> dict[str, st
         raise RuntimeError("Realtime turn-taking is disabled by server configuration.")
 
     async def start_connection(connection: SmallWebRTCConnection) -> None:
-        previous_task = _session_tasks.get(session_id)
-        if previous_task and not previous_task.done():
-            previous_task.cancel()
-            await asyncio.gather(previous_task, return_exceptions=True)
+        await _cancel_session_pipeline(session_id)
+
+        transport = SmallWebRTCTransport(
+            webrtc_connection=connection,
+            params=TransportParams(
+                audio_in_enabled=True,
+                audio_out_enabled=True,
+                audio_in_sample_rate=config.audio_input_sample_rate,
+                audio_out_sample_rate=config.audio_output_sample_rate,
+                audio_out_10ms_chunks=config.output_audio_chunk_ms // 10,
+            ),
+        )
 
         task = asyncio.create_task(
             _run_voice_pipeline(
-                connection,
+                transport,
                 session_id=session_id,
                 opening_message=(
                     _opening_message(session) if speak_opening_message else ""
@@ -502,6 +511,47 @@ async def handle_offer(payload: dict[str, Any], session_id: str) -> dict[str, st
         _track_task(task, session_id)
 
     return await _webrtc_handler.handle_web_request(request, start_connection)
+
+
+async def handle_websocket(
+    websocket: Any,
+    *,
+    session_id: str,
+    request_data: dict[str, Any],
+    speak_opening_message: bool,
+) -> None:
+    """Run the same realtime pipeline over a tunnel-friendly WebSocket transport."""
+    session = await orchestrator_client.get_session(session_id)
+    config = TurnTakingConfig.resolve(request_data)
+    if not config.enabled:
+        raise RuntimeError("Realtime turn-taking is disabled by server configuration.")
+
+    await _cancel_session_pipeline(session_id)
+    transport = FastAPIWebsocketTransport(
+        websocket=websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=config.audio_input_sample_rate,
+            audio_out_sample_rate=config.audio_output_sample_rate,
+            audio_out_10ms_chunks=config.output_audio_chunk_ms // 10,
+            serializer=ProtobufFrameSerializer(),
+            add_wav_header=False,
+        ),
+    )
+    task = asyncio.create_task(
+        _run_voice_pipeline(
+            transport,
+            session_id=session_id,
+            opening_message=(
+                _opening_message(session) if speak_opening_message else ""
+            ),
+            config=config,
+        ),
+        name=f"realtime-voice-{session_id}-websocket",
+    )
+    _track_task(task, session_id)
+    await task
 
 
 async def handle_ice_patch(payload: dict[str, Any]) -> None:

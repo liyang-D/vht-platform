@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js'
 import type { BotLLMTextData, TranscriptData } from '@pipecat-ai/client-js'
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
+import { WebSocketTransport } from '@pipecat-ai/websocket-transport'
 import './App.css'
 import './SimpleChat.css'
 import ScenarioDialog from "./ScenarioDialog"
@@ -70,6 +71,8 @@ type Scenario = {
 }
 
 type RealtimeVoiceState = 'disconnected' | 'connecting' | 'listening' | 'thinking' | 'speaking'
+type RealtimeTransport = 'webrtc' | 'websocket'
+type RealtimeTransportPreference = 'auto' | RealtimeTransport
 
 type TurnTakingConfig = {
   enabled: boolean
@@ -122,6 +125,16 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const HISTORY_URL = `${import.meta.env.BASE_URL}history`
 const EVALUATION_URL = "/evaluation/"
 const RETRYABLE_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs)
+    promise.then(
+      (value) => { window.clearTimeout(timer); resolve(value) },
+      (error) => { window.clearTimeout(timer); reject(error) },
+    )
+  })
+}
 
 function messageId() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -302,6 +315,9 @@ function App() {
   const [interimTranscript, setInterimTranscript] = useState('')
   const [turnTakingConfig, setTurnTakingConfig] = useState<TurnTakingConfig>(FALLBACK_TURN_TAKING_CONFIG)
   const [realtimeIceServers, setRealtimeIceServers] = useState<RTCIceServer[]>([])
+  const [realtimeTransportPreference, setRealtimeTransportPreference] = useState<RealtimeTransportPreference>('auto')
+  const [activeRealtimeTransport, setActiveRealtimeTransport] = useState<RealtimeTransport | null>(null)
+  const [webrtcConnectTimeoutMs, setWebrtcConnectTimeoutMs] = useState(5000)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
@@ -315,6 +331,7 @@ function App() {
   const realtimeClientRef = useRef<PipecatClient | null>(null)
   const realtimeAudioRef = useRef<HTMLAudioElement | null>(null)
   const realtimeVoiceStateRef = useRef<RealtimeVoiceState>('disconnected')
+  const realtimeConnectionAttemptRef = useRef(0)
 
   useEffect(() => {
     let ignore = false
@@ -325,10 +342,14 @@ function App() {
         if (!response.ok) throw new Error(await readError(response))
         const payload = (await response.json()) as {
           defaults: TurnTakingConfig
+          transport: RealtimeTransportPreference
+          webrtc_connect_timeout_ms: number
           public_ice_servers: RTCIceServer[]
         }
         if (!ignore) {
           setTurnTakingConfig(payload.defaults)
+          setRealtimeTransportPreference(payload.transport ?? 'auto')
+          setWebrtcConnectTimeoutMs(payload.webrtc_connect_timeout_ms ?? 5000)
           setRealtimeIceServers(payload.public_ice_servers ?? [])
         }
       } catch {
@@ -435,6 +456,7 @@ function App() {
       stopAvatarAudio()
       stopRecordingResources()
       const realtimeClient = realtimeClientRef.current
+      realtimeConnectionAttemptRef.current += 1
       realtimeClientRef.current = null
       if (realtimeClient) {
         void realtimeClient.disconnect().catch(() => undefined)
@@ -508,21 +530,42 @@ function App() {
     }
   }
 
+  async function requestRealtimeMicPermission() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('This browser does not support microphone capture.')
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+    })
+    stream.getTracks().forEach((track) => track.stop())
+  }
+
+  async function safelyDisconnectClient(client: PipecatClient) {
+    try {
+      await withTimeout(client.disconnect(), 1500, 'Disconnect timed out')
+    } catch {
+      // The failed transport may already be closed or still finishing ICE cleanup.
+    }
+  }
+
   async function disconnectRealtimeVoice() {
+    realtimeConnectionAttemptRef.current += 1
     const client = realtimeClientRef.current
     realtimeClientRef.current = null
     setInterimTranscript('')
+    setActiveRealtimeTransport(null)
 
     if (realtimeAudioRef.current) {
       realtimeAudioRef.current.srcObject = null
     }
 
     if (client) {
-      try {
-        await client.disconnect()
-      } catch {
-        // The transport may already be closed by the server.
-      }
+      await safelyDisconnectClient(client)
     }
 
     updateRealtimeVoiceState('disconnected')
@@ -533,94 +576,146 @@ function App() {
 
     stopAvatarAudio()
     await disconnectRealtimeVoice()
+    const attempt = realtimeConnectionAttemptRef.current + 1
+    realtimeConnectionAttemptRef.current = attempt
     updateRealtimeVoiceState('connecting')
-    setStatus('Connecting continuous voice...')
+    setStatus('Waiting for microphone permission...')
 
-    const client = new PipecatClient({
-      transport: new SmallWebRTCTransport({ iceServers: realtimeIceServers }),
-      enableMic: true,
-      enableCam: false,
-    })
-    realtimeClientRef.current = client
+    const isCurrent = (client?: PipecatClient) => (
+      realtimeConnectionAttemptRef.current === attempt
+      && (!client || realtimeClientRef.current === client)
+    )
 
-    client.on(RTVIEvent.TrackStarted, (track, participant) => {
-      if (track.kind !== 'audio') return
-      if (participant?.local) {
-        void applyRealtimeMicConstraints(client)
-        return
-      }
-      if (realtimeAudioRef.current) {
-        realtimeAudioRef.current.srcObject = new MediaStream([track])
-        void realtimeAudioRef.current.play().catch(() => undefined)
-      }
-    })
-    client.on(RTVIEvent.UserTranscript, (data: TranscriptData) => {
-      setInterimTranscript(data.final ? '' : data.text)
-    })
-    client.on(RTVIEvent.UserLlmText, (data) => {
-      const text = data.text.trim()
-      if (!text) return
-      setInterimTranscript('')
-      setMessages((current) => [
-        ...current,
-        { id: messageId(), role: 'user', text },
-      ])
-    })
-    client.on(RTVIEvent.BotLlmText, (data: BotLLMTextData) => {
-      const text = data.text.trim()
-      if (!text) return
-      setMessages((current) => [
-        ...current,
-        { id: messageId(), role: 'assistant', text },
-      ])
-    })
-    client.on(RTVIEvent.UserStartedSpeaking, () => {
-      const wasSpeaking = realtimeVoiceStateRef.current === 'speaking'
-      updateRealtimeVoiceState('listening')
-      setStatus(wasSpeaking ? 'Interrupted — listening...' : 'Listening...')
-    })
-    client.on(RTVIEvent.UserStoppedSpeaking, () => {
-      updateRealtimeVoiceState('thinking')
-      setStatus('Thinking...')
-    })
-    client.on(RTVIEvent.BotStartedSpeaking, () => {
-      updateRealtimeVoiceState('speaking')
-      setStatus('Speaking — you can interrupt')
-    })
-    client.on(RTVIEvent.BotStoppedSpeaking, () => {
-      if (realtimeVoiceStateRef.current === 'speaking') {
+    const connectTransport = async (kind: RealtimeTransport) => {
+      const transport = kind === 'webrtc'
+        ? new SmallWebRTCTransport({ iceServers: realtimeIceServers })
+        : new WebSocketTransport({
+          recorderSampleRate: turnTakingConfig.audio_input_sample_rate,
+          playerSampleRate: turnTakingConfig.audio_output_sample_rate,
+        })
+      const client = new PipecatClient({ transport, enableMic: true, enableCam: false })
+      realtimeClientRef.current = client
+
+      client.on(RTVIEvent.TrackStarted, (track, participant) => {
+        if (!isCurrent(client) || track.kind !== 'audio') return
+        if (participant?.local) {
+          void applyRealtimeMicConstraints(client)
+          return
+        }
+        if (realtimeAudioRef.current) {
+          realtimeAudioRef.current.srcObject = new MediaStream([track])
+          void realtimeAudioRef.current.play().catch(() => undefined)
+        }
+      })
+      client.on(RTVIEvent.UserTranscript, (data: TranscriptData) => {
+        if (isCurrent(client)) setInterimTranscript(data.final ? '' : data.text)
+      })
+      client.on(RTVIEvent.UserLlmText, (data) => {
+        if (!isCurrent(client)) return
+        const text = data.text.trim()
+        if (!text) return
+        setInterimTranscript('')
+        setMessages((current) => [...current, { id: messageId(), role: 'user', text }])
+      })
+      client.on(RTVIEvent.BotLlmText, (data: BotLLMTextData) => {
+        if (!isCurrent(client)) return
+        const text = data.text.trim()
+        if (text) setMessages((current) => [...current, { id: messageId(), role: 'assistant', text }])
+      })
+      client.on(RTVIEvent.UserStartedSpeaking, () => {
+        if (!isCurrent(client)) return
+        const wasSpeaking = realtimeVoiceStateRef.current === 'speaking'
         updateRealtimeVoiceState('listening')
-        setStatus('Listening continuously')
+        setStatus(wasSpeaking ? 'Interrupted — listening...' : 'Listening...')
+      })
+      client.on(RTVIEvent.UserStoppedSpeaking, () => {
+        if (!isCurrent(client)) return
+        updateRealtimeVoiceState('thinking')
+        setStatus('Thinking...')
+      })
+      client.on(RTVIEvent.BotStartedSpeaking, () => {
+        if (!isCurrent(client)) return
+        updateRealtimeVoiceState('speaking')
+        setStatus('Speaking — you can interrupt')
+      })
+      client.on(RTVIEvent.BotStoppedSpeaking, () => {
+        if (isCurrent(client) && realtimeVoiceStateRef.current === 'speaking') {
+          updateRealtimeVoiceState('listening')
+          setStatus('Listening continuously')
+        }
+      })
+      client.on(RTVIEvent.Disconnected, () => {
+        if (!isCurrent(client)) return
+        realtimeClientRef.current = null
+        setActiveRealtimeTransport(null)
+        updateRealtimeVoiceState('disconnected')
+        setInterimTranscript('')
+        setStatus('Realtime voice disconnected')
+      })
+      client.on(RTVIEvent.Error, (message) => {
+        if (!isCurrent(client)) return
+        const data = message.data as { message?: string } | undefined
+        setStatus(data?.message ?? 'Realtime voice error')
+      })
+
+      await client.initDevices()
+      if (!isCurrent(client)) throw new Error('Connection cancelled')
+      await applyRealtimeMicConstraints(client)
+
+      if (kind === 'webrtc') {
+        await withTimeout(client.connect({
+          webrtcRequestParams: {
+            endpoint: `${API_BASE_URL}/api/realtime/offer`,
+            requestData: { turn_taking: turnTakingConfig, speak_opening_message: speakOpeningMessage },
+          },
+        }), webrtcConnectTimeoutMs, 'WebRTC media connection timed out')
+      } else {
+        const url = new URL(`${API_BASE_URL}/api/realtime/ws`, window.location.origin)
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+        url.searchParams.set('turn_taking', JSON.stringify(turnTakingConfig))
+        url.searchParams.set('speak_opening_message', String(speakOpeningMessage))
+        await client.connect({ wsUrl: url.toString() })
       }
-    })
-    client.on(RTVIEvent.Disconnected, () => {
-      realtimeClientRef.current = null
-      updateRealtimeVoiceState('disconnected')
-      setInterimTranscript('')
-      setStatus('Realtime voice disconnected')
-    })
-    client.on(RTVIEvent.Error, (message) => {
-      const data = message.data as { message?: string } | undefined
-      setStatus(data?.message ?? 'Realtime voice error')
-    })
+      if (!isCurrent(client)) throw new Error('Connection cancelled')
+      setActiveRealtimeTransport(kind)
+      updateRealtimeVoiceState('listening')
+      setStatus(`Listening continuously (${kind === 'webrtc' ? 'WebRTC' : 'WebSocket'})`)
+    }
 
     try {
-      await client.initDevices()
-      await applyRealtimeMicConstraints(client)
-      await client.connect({
-        webrtcRequestParams: {
-          endpoint: `${API_BASE_URL}/api/realtime/offer`,
-          requestData: {
-            turn_taking: turnTakingConfig,
-            speak_opening_message: speakOpeningMessage,
-          },
-        },
-      })
-      updateRealtimeVoiceState('listening')
-      setStatus('Listening continuously')
+      await requestRealtimeMicPermission()
+      if (realtimeConnectionAttemptRef.current !== attempt) return
+
+      const transports: RealtimeTransport[] = realtimeTransportPreference === 'auto'
+        ? ['webrtc', 'websocket']
+        : [realtimeTransportPreference]
+      let lastError: unknown
+      for (const kind of transports) {
+        if (realtimeConnectionAttemptRef.current !== attempt) return
+        setStatus(kind === 'webrtc' ? 'Connecting WebRTC voice...' : 'Connecting tunnel-compatible voice...')
+        try {
+          await connectTransport(kind)
+          return
+        } catch (error) {
+          lastError = error
+          const failedClient = realtimeClientRef.current
+          realtimeClientRef.current = null
+          if (failedClient) await safelyDisconnectClient(failedClient)
+          if (kind === 'webrtc' && realtimeTransportPreference === 'auto') {
+            setStatus('WebRTC unavailable; switching to WebSocket...')
+          }
+        }
+      }
+      throw lastError ?? new Error('Could not connect realtime voice')
     } catch (error) {
-      await disconnectRealtimeVoice()
-      setStatus(error instanceof Error ? error.message : 'Could not connect realtime voice')
+      if (realtimeConnectionAttemptRef.current === attempt) {
+        const failedClient = realtimeClientRef.current
+        realtimeClientRef.current = null
+        if (failedClient) await safelyDisconnectClient(failedClient)
+        setActiveRealtimeTransport(null)
+        updateRealtimeVoiceState('disconnected')
+        setStatus(error instanceof Error ? error.message : 'Could not connect realtime voice')
+      }
     }
   }
 
@@ -720,7 +815,7 @@ function App() {
       ])
       setStatus('Ready')
       if (mode === 'voice') {
-        await startRealtimeVoice(true)
+        void startRealtimeVoice(true)
       } else {
         await playAvatarSpeech(payload.audio_base64, payload.audio_mime_type)
       }
@@ -1120,9 +1215,13 @@ function App() {
               <div>
                 <strong>{realtimeVoiceState}</strong>
                 <small>
-                  {interimTranscript || (realtimeVoiceState === 'speaking'
+                  {interimTranscript || (activeRealtimeTransport
+                    ? `${activeRealtimeTransport === 'webrtc' ? 'WebRTC' : 'WebSocket'} · ${realtimeVoiceState === 'speaking'
+                      ? `say ${turnTakingConfig.min_words_to_interrupt}+ words to interrupt`
+                      : 'mic stays open; Smart Turn handles natural pauses'}`
+                    : (realtimeVoiceState === 'speaking'
                     ? `Say ${turnTakingConfig.min_words_to_interrupt}+ words to interrupt`
-                    : 'Mic stays open; Smart Turn handles natural pauses')}
+                    : 'Mic stays open; Smart Turn handles natural pauses'))}
                 </small>
               </div>
             </div>
@@ -1140,6 +1239,18 @@ function App() {
             <details className="turn-settings">
               <summary>Turn-taking settings</summary>
               <div className="turn-settings-grid">
+                <label>
+                  <span>Audio transport</span>
+                  <select
+                    disabled={realtimeVoiceState !== 'disconnected'}
+                    onChange={(event) => setRealtimeTransportPreference(event.target.value as RealtimeTransportPreference)}
+                    value={realtimeTransportPreference}
+                  >
+                    <option value="auto">Auto (recommended)</option>
+                    <option value="webrtc">WebRTC only</option>
+                    <option value="websocket">WebSocket only</option>
+                  </select>
+                </label>
                 <label>
                   <span>Words to interrupt</span>
                   <input

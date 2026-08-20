@@ -1,8 +1,9 @@
+import json
 import os
 import inspect
 from typing import Any
 
-from fastapi import Cookie, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Cookie, FastAPI, HTTPException, Query, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.datastructures import FormData
@@ -37,6 +38,11 @@ def cookie_secure() -> bool:
         "yes",
         "on",
     }
+
+
+def realtime_transport() -> str:
+    value = os.getenv("TURN_TAKING_TRANSPORT", "auto").strip().lower()
+    return value if value in {"auto", "webrtc", "websocket"} else "auto"
 
 app = FastAPI(title="Simple Chat Backend", version="0.1.0")
 
@@ -332,7 +338,10 @@ def get_realtime_config():
     """Expose resolved server defaults; clients may override these in offer requestData."""
     return {
         "defaults": realtime.TurnTakingConfig.server_defaults().model_dump(),
-        "transport": "small-webrtc",
+        "transport": realtime_transport(),
+        "webrtc_connect_timeout_ms": int(
+            os.getenv("TURN_TAKING_WEBRTC_CONNECT_TIMEOUT_MS", "5000")
+        ),
         "public_ice_servers": realtime.public_browser_ice_servers(),
         "browser_audio": {
             "echo_cancellation": True,
@@ -340,6 +349,42 @@ def get_realtime_config():
             "auto_gain_control": True,
         },
     }
+
+
+@app.websocket("/api/realtime/ws")
+async def realtime_websocket(websocket: WebSocket):
+    session_id = websocket.cookies.get(SESSION_COOKIE_NAME)
+    if not session_id:
+        await websocket.close(code=4404, reason="No active chat session.")
+        return
+
+    raw_config = websocket.query_params.get("turn_taking", "")
+    if len(raw_config) > 8192:
+        await websocket.close(code=4400, reason="Turn-taking config is too large.")
+        return
+
+    try:
+        overrides = json.loads(raw_config) if raw_config else {}
+        if not isinstance(overrides, dict):
+            raise ValueError("Turn-taking config must be an object.")
+    except (json.JSONDecodeError, ValueError) as exc:
+        await websocket.close(code=4400, reason=str(exc))
+        return
+
+    await websocket.accept()
+    try:
+        await realtime.handle_websocket(
+            websocket,
+            session_id=session_id,
+            request_data={"turn_taking": overrides},
+            speak_opening_message=(
+                websocket.query_params.get("speak_opening_message") == "true"
+            ),
+        )
+    except orchestrator_client.OrchestratorClientError:
+        await websocket.close(code=4404, reason="Active chat session not found.")
+    except (ValueError, RuntimeError) as exc:
+        await websocket.close(code=4400, reason=str(exc))
 
 
 @app.post("/api/realtime/offer")
