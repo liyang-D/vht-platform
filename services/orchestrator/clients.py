@@ -445,11 +445,18 @@ def call_llm(
     prompt: str,
     priority: int = 100,
     model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     client = get_llm_client()
 
     with GPU_INFERENCE_GATE.acquire(priority):
         with LLM_PRIORITY_GATE.acquire(priority):
+            request_options: dict[str, Any] = {}
+            if temperature is not None:
+                request_options["temperature"] = temperature
+            if max_tokens is not None:
+                request_options["max_tokens"] = max_tokens
             response = client.chat.completions.create(
                 model=model or LLM_MODEL,
                 messages=[
@@ -461,6 +468,7 @@ def call_llm(
                 extra_body={
                     "priority": priority,
                 },
+                **request_options,
             )
 
     text = response.choices[0].message.content or ""

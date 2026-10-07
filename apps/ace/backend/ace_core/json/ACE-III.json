@@ -1,0 +1,513 @@
+{
+    "Title": "ACE-III",
+    "Description": "The Addenbrooke's Cognitive Examination III (ACE-III) is a comprehensive cognitive assessment tool used to evaluate various cognitive domains, including attention, memory, fluency, language, and visuospatial abilities. Remote Administration - UK Version A (2020).",
+    "URL": "https://www.cambridge.org/gb/academic/subjects/psychology/clinical-psychology-and-clinical-neuroscience/addenbrookes-cognitive-examination-iii-ace-iii?format=PB&isbn=9781108491004",
+    "Participant": {
+        "Name": null,
+        "Date of Birth": null,
+        "Hospital Number": null
+    },
+    "Assessor": {
+        "Date of Assessment": null,
+        "Assessor Name": null,
+        "Age at leaving full-time education": null,
+        "Occupation": null,
+        "Handedness": null
+    },
+    "Domains": {
+        "Attention": {
+            "score_cap": 18,
+            "questions": [
+                {
+                    "question_text": "Orientation to Time: What is the day, date, month, year, and season?",
+                    "instructions": "Speak: 'What day of the week is it?' Wait for a response. Speak: 'What is today's date?' Wait for a response. Speak: 'What month is it?' Wait for a response. Speak: 'What year is it?' Wait for a response. Speak: 'What season is it?' Wait for a response.",
+                    "score_cap": 5,
+                    "match_type": "fuzzy",
+                    "answers": [
+                        "DYNAMIC:day_of_week",
+                        "DYNAMIC:date",
+                        "DYNAMIC:month",
+                        "DYNAMIC:year",
+                        "DYNAMIC:season"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Orientation to Place: What is the number or floor, street, town, county, and country?",
+                    "instructions": "Speak: 'Which number or floor is this?' Wait for a response. Speak: 'Which street is this?' Wait for a response. Speak: 'Which town are we in?' Wait for a response. Speak: 'Which county are we in?' Wait for a response. Speak: 'Which country are we in?' Wait for a response.",
+                    "score_cap": 5,
+                    "match_type": "fuzzy",
+                    "answers": [
+                        "DYNAMIC:number_or_floor",
+                        "DYNAMIC:street",
+                        "DYNAMIC:town",
+                        "DYNAMIC:county",
+                        "DYNAMIC:country"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Registration: Repeat the three words lemon, key, and ball.",
+                    "instructions": "Speak: 'I am going to give you three words and I would like you to repeat them after me: lemon, key, and ball.' Wait for a response. If participant fails on first trial, repeat up to 3 times total to ensure learning. Record number of trials required.",
+                    "score_cap": 3,
+                    "match_type": "fuzzy_list",
+                    "max_attempts": 3,
+                    "score_first_attempt_only": true,
+                    "answers": [
+                        "lemon",
+                        "key",
+                        "ball"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Serial 7s: Subtract 7 from 100 and keep subtracting 7.",
+                    "instructions": "Speak: 'Could you take 7 away from 100? I would like you to keep taking 7 away from each new number until I tell you to stop.' Wait for a response. Stop after five subtractions.",
+                    "score_cap": 5,
+                    "match_type": "serial_sevens",
+                    "answers": [
+                        "93",
+                        "86",
+                        "79",
+                        "72",
+                        "65"
+                    ],
+                    "image": null
+                }
+            ]
+        },
+        "Memory": {
+            "score_cap": 26,
+            "questions": [
+                {
+                    "question_text": "Three-word recall: Which three words did I ask you to remember?",
+                    "instructions": "Speak: 'Which three words did I ask you to repeat and remember?' Wait for a response.",
+                    "score_cap": 3,
+                    "match_type": "fuzzy_list",
+                    "answers": [
+                        "lemon",
+                        "key",
+                        "ball"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Name and address learning: Harry Barnes, 73 Orchard Close, Kingsbridge, Devon.",
+                    "instructions": "Speak: 'I am going to give you a name and address and I would like you to repeat them after me. We will do this three times so you have a chance to learn it. I will ask you again later.' Speak: 'Harry Barnes, 73 Orchard Close, Kingsbridge, Devon.' Wait for a response. Repeat the name and address for up to 3 trials total.",
+                    "score_cap": 7,
+                    "match_type": "mixed_list",
+                    "trials": 3,
+                    "score_final_trial_only": true,
+                    "answers": [
+                        "Harry",
+                        "Barnes",
+                        "73",
+                        "Orchard",
+                        "Close",
+                        "Kingsbridge",
+                        "Devon"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Retrograde memory: Name of the current UK Prime Minister.",
+                    "instructions": "Speak: 'Can you tell me the name of the current Prime Minister?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "person_name",
+                    "answers": [
+                        "DYNAMIC:uk_prime_minister"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Retrograde memory: Name of the first female UK Prime Minister.",
+                    "instructions": "Speak: 'Can you tell me the name of the first female Prime Minister?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "person_name",
+                    "answers": [
+                        "Margaret Thatcher",
+                        "Thatcher"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Retrograde memory: Name of the current President of the United States.",
+                    "instructions": "Speak: 'Can you tell me the name of the current President of the United States?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "person_name",
+                    "answers": [
+                        "DYNAMIC:us_president"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Retrograde memory: Name of the US President assassinated in the 1960s.",
+                    "instructions": "Speak: 'Can you name the President of the United States who was assassinated in the 1960s?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "person_name",
+                    "answers": [
+                        "John F. Kennedy",
+                        "John Kennedy",
+                        "Kennedy",
+                        "JFK"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Delayed recall: Recall the name and address from earlier.",
+                    "instructions": "Speak: 'Now, tell me what you remember about that name and address we were repeating at the beginning.' Wait for a response.",
+                    "score_cap": 7,
+                    "match_type": "mixed_list",
+                    "score_domain": "Memory",
+                    "recall_key": "name_address",
+                    "answers": [
+                        "Harry",
+                        "Barnes",
+                        "73",
+                        "Orchard",
+                        "Close",
+                        "Kingsbridge",
+                        "Devon"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Recognition: Identify correct name and address elements from choices.",
+                    "instructions": "Elements already credited in the delayed recall task are skipped automatically. Speak: 'Was the name Jerry Barnes, Harry Barnes, or Harry Bradford?' Wait for a response. Speak: 'Was the number 37, 73, or 76?' Wait for a response. Speak: 'Was the street Orchard Place, Oak Close, or Orchard Close?' Wait for a response. Speak: 'Was the town Oakhampton, Kingsbridge, or Dartington?' Wait for a response. Speak: 'Was the county Devon, Dorset, or Somerset?' Wait for a response.",
+                    "score_cap": 5,
+                    "match_type": "mixed_list",
+                    "score_domain": "Memory",
+                    "recall_key": "name_address",
+                    "element_recall_indices": [
+                        [
+                            0,
+                            1
+                        ],
+                        [
+                            2
+                        ],
+                        [
+                            3,
+                            4
+                        ],
+                        [
+                            5
+                        ],
+                        [
+                            6
+                        ]
+                    ],
+                    "answers": [
+                        "Harry Barnes",
+                        "73",
+                        "Orchard Close",
+                        "Kingsbridge",
+                        "Devon"
+                    ],
+                    "image": null
+                }
+            ]
+        },
+        "Fluency": {
+            "score_cap": 14,
+            "questions": [
+                {
+                    "question_text": "Letter fluency: Generate words beginning with the letter P in one minute.",
+                    "instructions": "Speak: 'I am going to give you a letter of the alphabet and I would like you to generate as many words as you can beginning with that letter, but not names of people or places. For example, if I give you the letter C, you could say cat, cry, clock, and so on, but not Catherine or Canada. Are you ready? You have one minute. The letter is P.' Wait for a response.",
+                    "score_cap": 7,
+                    "match_type": "fluency_letter",
+                    "answers": [],
+                    "image": null
+                },
+                {
+                    "question_text": "Category fluency: Name as many animals as possible in one minute.",
+                    "instructions": "Speak: 'Now can you name as many animals as possible. They can begin with any letter.' Wait for a response.",
+                    "score_cap": 7,
+                    "match_type": "fluency_animal",
+                    "answers": [],
+                    "image": null
+                }
+            ]
+        },
+        "Language": {
+            "score_cap": 26,
+            "questions": [
+                {
+                    "question_text": "Comprehension: Follow three-stage commands with pencil and paper.",
+                    "instructions": "Instruct carer to place a pencil and a blank piece of paper in front of the participant and position the camera to show both. Speak: 'Pick up the pencil and then the paper.' Wait for a response. If practice is incorrect, skip remaining commands. If practice is correct, continue. Speak: 'Place the paper on top of the pencil.' Wait for a response. Speak: 'Pick up the pencil but not the paper.' Wait for a response. Speak: 'Pick up the pencil after touching the paper.' Wait for a response.",
+                    "score_cap": 3,
+                    "match_type": "pen_paper",
+                    "answers": [
+                        "paper on top of pencil",
+                        "pencil not paper",
+                        "pencil after touching paper"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Writing: Write two complete sentences.",
+                    "instructions": "Instruct carer to position the camera to show the paper clearly. Speak: 'I want you to write two sentences. It can be about anything you like. Write in full sentences and avoid abbreviations.' If only one sentence is written speak: 'Can you write another sentence?' Wait for a response.",
+                    "score_cap": 2,
+                    "match_type": "sentances",
+                    "answers": [],
+                    "image": null
+                },
+                {
+                    "question_text": "Word repetition: Repeat caterpillar, eccentricity, unintelligible, statistician.",
+                    "instructions": "Speak each word separately and wait for a response after each: 'Repeat after me: caterpillar.' Wait for a response. 'Now say: eccentricity.' Wait for a response. 'Now say: unintelligible.' Wait for a response. 'Now say: statistician.' Wait for a response.",
+                    "score_cap": 2,
+                    "match_type": "fuzzy_list",
+                    "max_attempts": 2,
+                    "sub_score_bands": [
+                        [
+                            4,
+                            4,
+                            2
+                        ],
+                        [
+                            3,
+                            3,
+                            1
+                        ],
+                        [
+                            0,
+                            2,
+                            0
+                        ]
+                    ],
+                    "answers": [
+                        "caterpillar",
+                        "eccentricity",
+                        "unintelligible",
+                        "statistician"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Sentence repetition: Repeat the phrase - All that glitters is not gold.",
+                    "instructions": "Speak: 'I would like you to repeat this phrase after me: All that glitters is not gold.' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "sentence_repetition",
+                    "answers": [
+                        "All that glitters is not gold"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Sentence repetition: Repeat the phrase - A stitch in time saves nine.",
+                    "instructions": "Speak: 'Now repeat this phrase: A stitch in time saves nine.' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "sentence_repetition",
+                    "answers": [
+                        "A stitch in time saves nine"
+                    ],
+                    "image": null
+                },
+                {
+                    "question_text": "Naming: Name the 12 pictures shown on screen.",
+                    "instructions": "Show image to participant. Speak: 'I am going to show you some pictures on the screen. Please name each one.' Point to each picture in order from top-left to bottom-right. Wait for a response.",
+                    "score_cap": 12,
+                    "match_type": "fuzzy_list",
+                    "answers": [
+                        "spoon",
+                        "book",
+                        "kangaroo",
+                        "penguin",
+                        "anchor",
+                        "camel",
+                        "harp",
+                        "rhinoceros",
+                        "barrel",
+                        "crown",
+                        "crocodile",
+                        "accordion"
+                    ],
+                    "image": "images/page3_img3.png"
+                },
+                {
+                    "question_text": "Comprehension: Which picture is associated with the monarchy?",
+                    "instructions": "Show image to participant. Speak: 'Looking at the pictures on the screen, which one is associated with the monarchy?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "fuzzy",
+                    "answers": [
+                        "crown",
+                        "10"
+                    ],
+                    "image": "images/page3_img3.png"
+                },
+                {
+                    "question_text": "Comprehension: Which picture is the marsupial?",
+                    "instructions": "Show image to participant. Speak: 'Which one is the marsupial?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "fuzzy",
+                    "answers": [
+                        "kangaroo",
+                        "3"
+                    ],
+                    "image": "images/page3_img3.png"
+                },
+                {
+                    "question_text": "Comprehension: Which picture is found in the Antarctic?",
+                    "instructions": "Show image to participant. Speak: 'Which one is found in the Antarctic?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "fuzzy",
+                    "answers": [
+                        "penguin",
+                        "4"
+                    ],
+                    "image": "images/page3_img3.png"
+                },
+                {
+                    "question_text": "Comprehension: Which picture has a nautical connection?",
+                    "instructions": "Show image to participant. Speak: 'Which one has a nautical connection?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "fuzzy",
+                    "answers": [
+                        "anchor",
+                        "5"
+                    ],
+                    "image": "images/page3_img3.png"
+                },
+                {
+                    "question_text": "Reading: Read the following words aloud - sew, pint, soot, dough, height.",
+                    "instructions": "Show the word list to participant on screen: sew, pint, soot, dough, height. Speak: 'I would like you to read these words aloud.' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "all_correct_list",
+                    "answers": [
+                        "sew",
+                        "pint",
+                        "soot",
+                        "dough",
+                        "height"
+                    ],
+                    "image": "images/reading_words.png"
+                }
+            ]
+        },
+        "Visuospatial": {
+            "score_cap": 16,
+            "questions": [
+                {
+                    "question_text": "Infinity Diagram: Copy the infinity diagram.",
+                    "instructions": "Instruct carer to place a pencil and a blank piece of paper in front of the participant and position the camera to show the paper. Show image to participant. Speak: 'Please copy this diagram as accurately as you can.' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "infinity",
+                    "answers": [],
+                    "image": "images/page4_img3.png"
+                },
+                {
+                    "question_text": "Wire Cube: Copy the wire cube.",
+                    "instructions": "Instruct carer to place a pencil and a blank piece of paper in front of the participant and position the camera to show the paper. Show image to participant. Speak: 'Please copy this cube as accurately as you can.' Wait for a response.",
+                    "score_cap": 2,
+                    "match_type": "cube",
+                    "answers": [],
+                    "image": "images/page4_img4.png"
+                },
+                {
+                    "question_text": "Clock: Draw a clock face showing ten past five.",
+                    "instructions": "Instruct carer to place a pencil and a blank piece of paper in front of the participant and position the camera to show the paper. Speak: 'Please draw a clock face with all the numbers on it.' Wait for a response. Speak: 'Now put the hands at ten past five.' Wait for a response.",
+                    "score_cap": 5,
+                    "match_type": "clock",
+                    "answers": [],
+                    "image": null
+                },
+                {
+                    "question_text": "Dot counting: Count the dots in the first array.",
+                    "instructions": "Show image to participant. Speak: 'How many dots can you see in this picture? Please count them without pointing.' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "integer",
+                    "answers": [
+                        "10"
+                    ],
+                    "image": "images/page5_img6.jpeg"
+                },
+                {
+                    "question_text": "Dot counting: Count the dots in the second array.",
+                    "instructions": "Show image to participant. Speak: 'How many dots can you see in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "integer",
+                    "answers": [
+                        "8"
+                    ],
+                    "image": "images/page5_img7.jpeg"
+                },
+                {
+                    "question_text": "Dot counting: Count the dots in the third array.",
+                    "instructions": "Show image to participant. Speak: 'How many dots can you see in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "integer",
+                    "answers": [
+                        "9"
+                    ],
+                    "image": "images/page5_img8.jpeg"
+                },
+                {
+                    "question_text": "Dot counting: Count the dots in the fourth array.",
+                    "instructions": "Show image to participant. Speak: 'How many dots can you see in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "integer",
+                    "answers": [
+                        "7"
+                    ],
+                    "image": "images/page5_img9.jpeg"
+                },
+                {
+                    "question_text": "Fragmented letters: Identify the fragmented letter.",
+                    "instructions": "Show image to participant. Speak: 'What letter is shown in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "exact",
+                    "answers": [
+                        "M"
+                    ],
+                    "image": "images/page5_img2.jpeg"
+                },
+                {
+                    "question_text": "Fragmented letters: Identify the fragmented letter.",
+                    "instructions": "Show image to participant. Speak: 'What letter is shown in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "exact",
+                    "answers": [
+                        "A"
+                    ],
+                    "image": "images/page5_img3.jpeg"
+                },
+                {
+                    "question_text": "Fragmented letters: Identify the fragmented letter.",
+                    "instructions": "Show image to participant. Speak: 'What letter is shown in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "exact",
+                    "answers": [
+                        "T"
+                    ],
+                    "image": "images/page5_img4.jpeg"
+                },
+                {
+                    "question_text": "Fragmented letters: Identify the fragmented letter.",
+                    "instructions": "Show image to participant. Speak: 'What letter is shown in this picture?' Wait for a response.",
+                    "score_cap": 1,
+                    "match_type": "exact",
+                    "answers": [
+                        "K"
+                    ],
+                    "image": "images/page5_img5.png"
+                }
+            ]
+        }
+    },
+    "Scoring": {
+        "M-ACE": {
+            "score_cap": 30,
+            "note": "Sum only items marked with an asterisk on the assessment form: orientation to time (5 points), three-word registration (3 points), and selected items from memory and language domains. Not all ACE-III items contribute to the M-ACE score."
+        },
+        "ACE-III_Total": {
+            "score_cap": 100,
+            "subtotals": {
+                "Attention": 18,
+                "Memory": 26,
+                "Fluency": 14,
+                "Language": 26,
+                "Visuospatial": 16
+            }
+        }
+    }
+}

@@ -14,6 +14,8 @@ service, with shared contracts kept in focused top-level modules.
 - `orchestrator`: internal API used by apps.
 - `apps/simple-chat`: regular text/voice chat with model-weights selection and history.
 - `apps/evaluation`: side-by-side model comparison, paired live sessions, and turn replay.
+- `apps/ace`: single-user ACE-III research prototype with browser media capture,
+  isolated checkpoints/results, and preserved source scoring rules.
 - `gateway`: the single HTTP entry point; routes `/chat/` and `/evaluation/` to
   their independent app frontends.
 
@@ -21,6 +23,11 @@ Production and inspection ports bind to `127.0.0.1`. The development gateway
 currently has a temporary campus-facing binding for presentations; firewall or
 SSH tunnelling can still be used as the external access boundary. Application
 containers otherwise communicate only over the Compose network.
+
+ACE is intentionally not routed through the shared gateway because it captures
+research audio and images. In development it binds only to `127.0.0.1:8071`;
+use an SSH local port forward and open `http://127.0.0.1:8071/`. It is a research
+prototype and is not clinically validated.
 
 ## Environments
 

@@ -32,6 +32,10 @@ services:
     ports:
       - "127.0.0.1:${EVALUATION_BACKEND_PORT:-8050}:8050"
 
+  ace-frontend:
+    ports:
+      - "127.0.0.1:${ACE_FRONTEND_PORT:-8071}:80"
+
   gateway:
     ports:
       # TEMPORARY: campus HTTP access for presentations until HTTPS/TLS on 443 is ready.

@@ -381,6 +381,39 @@ services:
     expose:
       - "80"
 
+  ace-backend:
+    build:
+      context: ..
+      dockerfile: apps/ace/backend/Dockerfile
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8000
+      ACE_DATA_ROOT: /data
+      ACE_ORCHESTRATOR_TIMEOUT_SECONDS: ${ACE_ORCHESTRATOR_TIMEOUT_SECONDS:-300}
+      ACE_MAX_UPLOAD_BYTES: ${ACE_MAX_UPLOAD_BYTES:-33554432}
+      TZ: Europe/London
+    volumes:
+      - ace_data:/data
+    depends_on:
+      orchestrator:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8070/health', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    expose:
+      - "8070"
+
+  ace-frontend:
+    build:
+      context: ..
+      dockerfile: apps/ace/frontend/Dockerfile
+    depends_on:
+      ace-backend:
+        condition: service_healthy
+    expose:
+      - "80"
+
   evaluation-backend:
     build:
       context: ..
@@ -430,3 +463,4 @@ volumes:
   huggingface_cache:
   nim_asr_cache:
   nim_tts_cache:
+  ace_data:

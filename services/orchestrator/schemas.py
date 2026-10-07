@@ -197,3 +197,46 @@ class VisionAnalyzeResponse(BaseModel):
     structured_output: dict[str, Any] | None = None
     usage: dict[str, Any]
     images: list[VisionImageMetadata]
+
+
+class InferenceTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(min_length=1, max_length=32_000)
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=512, ge=1, le=2_000)
+    priority: int = Field(default=100, ge=-1_000_000, le=1_000_000)
+
+
+class InferenceTextResponse(BaseModel):
+    model: str
+    text: str
+    usage: dict[str, Any]
+
+
+class InferenceSpeechRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=8_000)
+    priority: int = Field(default=100, ge=-1_000_000, le=1_000_000)
+
+
+class InferenceSpeechResponse(BaseModel):
+    model: str
+    audio_base64: str
+    audio_mime_type: str
+    usage: dict[str, Any]
+
+
+class InferenceTranscriptionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    audio_base64: str = Field(min_length=1, max_length=45_000_000)
+    mime_type: str = Field(default="application/octet-stream", max_length=200)
+    domain: str | None = Field(default=None, max_length=200)
+    boosted_words: list[str] = Field(default_factory=list, max_length=200)
+    boost_score: float | None = None
+    priority: int = Field(default=100, ge=-1_000_000, le=1_000_000)
+
+
+class InferenceTranscriptionResponse(BaseModel):
+    model: str
+    transcript: str
+    usage: dict[str, Any]
