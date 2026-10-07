@@ -1,7 +1,9 @@
 import inspect
 import base64
+import json
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from starlette.datastructures import FormData
 
 from . import session
@@ -177,6 +179,45 @@ def send_message(session_id: str, request: SendMessageRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sessions/{session_id}/messages/stream")
+def stream_message(session_id: str, request: SendMessageRequest):
+    if request.interaction_mode != "free":
+        raise HTTPException(
+            status_code=400,
+            detail="Streaming messages currently support free interaction mode only.",
+        )
+
+    try:
+        events = session.stream_user_message(
+            session_id=session_id,
+            user_text=request.text,
+            response_modality=request.response_modality,
+        )
+    except session.NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except session.AccessDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except session.QuotaExceededError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except session.OrchestratorError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    def ndjson_events():
+        for event in events:
+            yield json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    return StreamingResponse(
+        ndjson_events(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post(

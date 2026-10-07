@@ -103,9 +103,9 @@ const FALLBACK_TURN_TAKING_CONFIG: TurnTakingConfig = {
   min_words_to_interrupt: 3,
   use_interim_transcripts_for_interruptions: true,
   vad_confidence: 0.7,
-  vad_start_secs: 0.25,
+  vad_start_secs: 0.3,
   vad_stop_secs: 0.2,
-  vad_min_volume: 0.5,
+  vad_min_volume: 0.55,
   smart_turn_stop_secs: 3,
   smart_turn_pre_speech_ms: 500,
   smart_turn_max_duration_secs: 8,
@@ -332,6 +332,7 @@ function App() {
   const realtimeClientRef = useRef<PipecatClient | null>(null)
   const realtimeAudioRef = useRef<HTMLAudioElement | null>(null)
   const realtimeVoiceStateRef = useRef<RealtimeVoiceState>('disconnected')
+  const realtimeBotMessageIdRef = useRef<string | null>(null)
   const realtimeConnectionAttemptRef = useRef(0)
 
   useEffect(() => {
@@ -632,15 +633,27 @@ function App() {
       })
       client.on(RTVIEvent.UserLlmText, (data) => {
         if (!isCurrent(client)) return
+        realtimeBotMessageIdRef.current = null
         const text = data.text.trim()
         if (!text) return
         setInterimTranscript('')
         setMessages((current) => [...current, { id: messageId(), role: 'user', text }])
       })
       client.on(RTVIEvent.BotLlmText, (data: BotLLMTextData) => {
-        if (!isCurrent(client)) return
-        const text = data.text.trim()
-        if (text) setMessages((current) => [...current, { id: messageId(), role: 'assistant', text }])
+        if (!isCurrent(client) || !data.text) return
+        const existingId = realtimeBotMessageIdRef.current
+        if (existingId) {
+          setMessages((current) => current.map((message) => (
+            message.id === existingId
+              ? { ...message, text: message.text + data.text }
+              : message
+          )))
+          return
+        }
+
+        const id = messageId()
+        realtimeBotMessageIdRef.current = id
+        setMessages((current) => [...current, { id, role: 'assistant', text: data.text }])
       })
       client.on(RTVIEvent.UserStartedSpeaking, () => {
         if (!isCurrent(client)) return

@@ -1,6 +1,7 @@
 import json
 import re
 import base64
+from collections.abc import Iterator
 from typing import Any
 
 from pydantic import BaseModel
@@ -968,6 +969,243 @@ def handle_user_message(
     )
 
     return payload
+
+
+def stream_user_message(
+    session_id: str,
+    user_text: str,
+    response_modality: str = "voice",
+) -> Iterator[dict[str, Any]]:
+    """Stream a free-form response while preserving normal turn persistence."""
+    session_record = db.get_session_with_project_and_key(session_id)
+    validate_session_record(session_record)
+
+    task_config = db.serialise_task_config(session_record.get("task_config"))
+    llm_model = resolve_llm_model(task_config.get("lora_adapter"))
+    request_type = get_message_request_type(
+        interaction_mode="free",
+        response_modality=response_modality,
+    )
+    llm_priority = build_llm_priority_metadata(session_record, request_type)
+    prompt_metadata = TurnPromptMetadata(
+        response_modality=response_modality,
+        prompt_template="free.v1",
+        model=llm_model,
+    ).model_dump(mode="json", exclude_none=True)
+    prompt_metadata["scheduling"] = llm_priority
+    turn_record = db.create_turn(
+        session_id=session_id,
+        interaction_mode="free",
+        status="processing",
+        prompt_metadata=prompt_metadata,
+    )
+    turn_id = str(turn_record["id"])
+
+    messages = db.get_session_messages(session_id)
+    db.add_message(
+        turn_id=turn_id,
+        role="user",
+        text=user_text,
+    )
+
+    safety_result = safety.basic_input_safety_check(
+        user_text=user_text,
+        task_config=task_config,
+    )
+    if not safety_result.allowed:
+        refusal_text = safety_result.message or "I’m not able to help with that request."
+        structured_output = {
+            "safety_blocked": True,
+            "reason": safety_result.reason,
+        }
+        usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+        }
+        db.add_message(turn_id=turn_id, role="avatar", text=refusal_text)
+        db.update_turn(
+            turn_id=turn_id,
+            status="completed",
+            structured_output=structured_output,
+            prompt_metadata=prompt_metadata,
+            usage=usage,
+        )
+        db.update_session_runtime_state(
+            session_id=session_id,
+            runtime_state=build_runtime_state_payload(
+                interaction_mode="free",
+                response_modality=response_modality,
+            ),
+        )
+        write_audit_event(
+            record=session_record,
+            event_type="message.completed",
+            session_id=session_id,
+            turn_id=turn_id,
+            metadata={
+                "request_type": request_type,
+                "response_modality": response_modality,
+                "interaction_mode": "free",
+                "model": llm_model,
+                "scheduling": llm_priority,
+                "usage": usage,
+                "audio_generated": False,
+                "has_structured_output": True,
+                "safety_blocked": True,
+                "safety_reason": safety_result.reason,
+            },
+        )
+
+        def refusal_events() -> Iterator[dict[str, Any]]:
+            yield {"type": "text_delta", "text": refusal_text}
+            yield {
+                "type": "done",
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "text": refusal_text,
+                "structured_output": structured_output,
+                "usage": usage,
+            }
+
+        return refusal_events()
+
+    prompt = build_prompt(
+        task_config=task_config,
+        summary=session_record.get("summary"),
+        history=format_history(messages),
+        latest_user_text=user_text,
+        response_modality=response_modality,
+    )
+
+    def events() -> Iterator[dict[str, Any]]:
+        usage: dict[str, Any] = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": 1,
+        }
+        raw_parts: list[str] = []
+        try:
+            if task_config.get("requires_structured_output", False):
+                raw_text, usage = clients.call_llm(
+                    prompt,
+                    priority=llm_priority["effective_priority"],
+                    model=llm_model,
+                )
+                avatar_text, structured_output = parse_llm_output(raw_text, task_config)
+                if avatar_text:
+                    yield {"type": "text_delta", "text": avatar_text}
+            else:
+                for event in clients.stream_llm(
+                    prompt,
+                    priority=llm_priority["effective_priority"],
+                    model=llm_model,
+                ):
+                    if event["type"] == "text_delta":
+                        text = str(event.get("text") or "")
+                        if text:
+                            raw_parts.append(text)
+                            yield {"type": "text_delta", "text": text}
+                    elif event["type"] == "usage":
+                        usage = dict(event.get("usage") or usage)
+
+                raw_text = "".join(raw_parts)
+                avatar_text, structured_output = parse_llm_output(raw_text, task_config)
+
+            if not avatar_text:
+                raise RuntimeError("The LLM returned an empty response.")
+
+            db.add_message(turn_id=turn_id, role="avatar", text=avatar_text)
+            db.update_turn(
+                turn_id=turn_id,
+                status="completed",
+                structured_output=structured_output,
+                prompt_metadata=prompt_metadata,
+                usage=usage,
+            )
+            db.update_session_runtime_state(
+                session_id=session_id,
+                runtime_state=build_runtime_state_payload(
+                    interaction_mode="free",
+                    response_modality=response_modality,
+                ),
+            )
+            db.increment_usage(
+                project_id=str(session_record["project_id"]),
+                access_key_id=str(session_record["access_key_id"]),
+                amount=int(usage.get("total_tokens") or 1),
+            )
+            write_audit_event(
+                record=session_record,
+                event_type="message.completed",
+                session_id=session_id,
+                turn_id=turn_id,
+                metadata={
+                    "request_type": request_type,
+                    "response_modality": response_modality,
+                    "interaction_mode": "free",
+                    "model": llm_model,
+                    "scheduling": llm_priority,
+                    "usage": usage,
+                    "audio_generated": False,
+                    "has_structured_output": structured_output is not None,
+                },
+            )
+            yield {
+                "type": "done",
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "text": avatar_text,
+                "structured_output": structured_output,
+                "usage": usage,
+            }
+        except GeneratorExit:
+            db.update_turn(
+                turn_id=turn_id,
+                status="cancelled",
+                prompt_metadata=prompt_metadata,
+                usage=usage,
+            )
+            write_audit_event(
+                record=session_record,
+                event_type="message.cancelled",
+                event_status="cancelled",
+                session_id=session_id,
+                turn_id=turn_id,
+                metadata={
+                    "request_type": request_type,
+                    "response_modality": response_modality,
+                    "interaction_mode": "free",
+                    "model": llm_model,
+                    "scheduling": llm_priority,
+                },
+            )
+            raise
+        except Exception as exc:
+            db.update_turn(
+                turn_id=turn_id,
+                status="failed",
+                prompt_metadata=prompt_metadata,
+                usage=usage,
+            )
+            write_audit_event(
+                record=session_record,
+                event_type="message.failed",
+                event_status="failed",
+                session_id=session_id,
+                turn_id=turn_id,
+                metadata={
+                    "request_type": request_type,
+                    "response_modality": response_modality,
+                    "interaction_mode": "free",
+                    "model": llm_model,
+                    "scheduling": llm_priority,
+                    "error": str(exc),
+                },
+            )
+            raise
+
+    return events()
 
 
 def transcribe_user_audio_message(

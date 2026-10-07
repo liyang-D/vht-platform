@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -440,6 +441,57 @@ def call_llm(
     usage = extract_usage(response)
 
     return text, usage
+
+
+def stream_llm(
+    prompt: str,
+    priority: int = 100,
+    model: str | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield ordered LLM text deltas followed by one usage event."""
+    client = get_llm_client()
+    usage = {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": 1,
+    }
+
+    with LLM_PRIORITY_GATE.acquire(priority):
+        response = client.chat.completions.create(
+            model=model or LLM_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            stream=True,
+            stream_options={"include_usage": True},
+            extra_body={
+                "priority": priority,
+            },
+        )
+
+        try:
+            for chunk in response:
+                chunk_usage = getattr(chunk, "usage", None)
+                if chunk_usage is not None:
+                    usage = extract_usage(chunk)
+
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+
+                delta = getattr(choices[0], "delta", None)
+                text = getattr(delta, "content", None) if delta is not None else None
+                if text:
+                    yield {"type": "text_delta", "text": str(text)}
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+
+    yield {"type": "usage", "usage": usage}
 
 
 def summarise_session(

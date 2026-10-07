@@ -1,6 +1,8 @@
 import os
 import asyncio
 import base64
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -143,6 +145,35 @@ async def send_message(
 
     _raise_for_error(response)
     return response.json()
+
+
+async def stream_message(
+    session_id: str,
+    text: str,
+    response_modality: str = "voice",
+) -> AsyncIterator[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as client:
+        async with client.stream(
+            "POST",
+            f"{ORCHESTRATOR_URL}/sessions/{session_id}/messages/stream",
+            json={
+                "text": text,
+                "response_modality": response_modality,
+                "synthesize_audio": False,
+                "interaction_mode": "free",
+            },
+        ) as response:
+            if response.status_code >= 400:
+                await response.aread()
+                _raise_for_error(response)
+
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                event = json.loads(line)
+                if not isinstance(event, dict):
+                    raise RuntimeError("Invalid orchestrator stream event.")
+                yield event
 
 
 async def transcribe_audio_message(

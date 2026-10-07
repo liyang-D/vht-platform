@@ -60,6 +60,8 @@ from pipecat.transports.websocket.fastapi import (
 from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.utils.text.base_text_aggregator import AggregationType
+from pipecat.utils.text.simple_text_aggregator import SimpleTextAggregator
 from pipecat.workers.runner import WorkerRunner
 
 
@@ -81,9 +83,9 @@ class TurnTakingConfig(BaseModel):
     use_interim_transcripts_for_interruptions: bool = True
 
     vad_confidence: float = Field(default=0.7, ge=0.1, le=0.99)
-    vad_start_secs: float = Field(default=0.25, ge=0.05, le=2.0)
+    vad_start_secs: float = Field(default=0.3, ge=0.05, le=2.0)
     vad_stop_secs: float = Field(default=0.2, ge=0.05, le=2.0)
-    vad_min_volume: float = Field(default=0.5, ge=0.0, le=1.0)
+    vad_min_volume: float = Field(default=0.55, ge=0.0, le=1.0)
 
     smart_turn_stop_secs: float = Field(default=3.0, ge=0.5, le=10.0)
     smart_turn_pre_speech_ms: float = Field(default=500.0, ge=0.0, le=2000.0)
@@ -110,9 +112,9 @@ class TurnTakingConfig(BaseModel):
                 "TURN_TAKING_USE_INTERIM_TRANSCRIPTS", True
             ),
             vad_confidence=float(os.getenv("TURN_TAKING_VAD_CONFIDENCE", "0.7")),
-            vad_start_secs=float(os.getenv("TURN_TAKING_VAD_START_SECS", "0.25")),
+            vad_start_secs=float(os.getenv("TURN_TAKING_VAD_START_SECS", "0.3")),
             vad_stop_secs=float(os.getenv("TURN_TAKING_VAD_STOP_SECS", "0.2")),
-            vad_min_volume=float(os.getenv("TURN_TAKING_VAD_MIN_VOLUME", "0.5")),
+            vad_min_volume=float(os.getenv("TURN_TAKING_VAD_MIN_VOLUME", "0.55")),
             smart_turn_stop_secs=float(
                 os.getenv("TURN_TAKING_SMART_TURN_STOP_SECS", "3.0")
             ),
@@ -196,18 +198,24 @@ class OrchestratorLLMService(LLMService):
             if not user_text:
                 raise RuntimeError("The completed user turn did not contain a transcript.")
 
-            payload = await orchestrator_client.send_message(
+            received_text = False
+            async for event in orchestrator_client.stream_message(
                 session_id=self._session_id,
                 text=user_text,
                 response_modality="voice",
-                synthesize_audio=False,
-            )
-            response_text = str(payload.get("text") or "").strip()
-            if not response_text:
-                raise RuntimeError("The orchestrator returned an empty response.")
+            ):
+                if event.get("type") != "text_delta":
+                    continue
+                text = str(event.get("text") or "")
+                if not text:
+                    continue
+                if not received_text:
+                    received_text = True
+                    await self.stop_ttfb_metrics()
+                await self._push_llm_text(text)
 
-            await self.stop_ttfb_metrics()
-            await self._push_llm_text(response_text)
+            if not received_text:
+                raise RuntimeError("The orchestrator returned an empty response.")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -330,6 +338,25 @@ _active_tasks: set[asyncio.Task[None]] = set()
 _session_tasks: dict[str, asyncio.Task[None]] = {}
 
 
+async def _natural_tts_frames(text: str) -> list[TTSSpeakFrame]:
+    """Split text only at Pipecat-confirmed sentence boundaries."""
+    aggregator = SimpleTextAggregator(aggregation_type=AggregationType.SENTENCE)
+    sentences: list[str] = []
+
+    async for sentence in aggregator.aggregate(text):
+        if sentence.text.strip():
+            sentences.append(sentence.text.strip())
+
+    remainder = await aggregator.flush()
+    if remainder and remainder.text.strip():
+        sentences.append(remainder.text.strip())
+
+    return [
+        TTSSpeakFrame(sentence, append_to_context=False)
+        for sentence in sentences
+    ]
+
+
 async def _run_voice_pipeline(
     transport: BaseTransport,
     *,
@@ -431,9 +458,7 @@ async def _run_voice_pipeline(
         async def on_client_connected(_transport, _client):
             logger.info("Realtime voice client connected for session {}", session_id)
             if opening_message:
-                await worker.queue_frame(
-                    TTSSpeakFrame(opening_message, append_to_context=False)
-                )
+                await worker.queue_frames(await _natural_tts_frames(opening_message))
 
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(_transport, _client):
