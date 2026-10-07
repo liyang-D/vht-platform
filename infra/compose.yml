@@ -38,11 +38,24 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-EMPTY}
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
       LLM_RUNTIME_URL: ${LLM_RUNTIME_URL:-http://llm:8000}
-      LLM_MODEL_REVISION: ${LLM_MODEL_REVISION:-0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe}
+      LLM_LORA_BASE_MODEL: ${LLM_LORA_BASE_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
+      LLM_LORA_BASE_REVISION: ${LLM_LORA_BASE_REVISION:-0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe}
       LLM_MAX_LORA_RANK: ${LLM_MAX_LORA_RANK:-16}
       LLM_LORA_ROOT: /models/loras
+      VLM_API_BASE_URL: ${VLM_API_BASE_URL:-http://vlm:8000/v1}
+      VLM_API_KEY: ${VLM_API_KEY:-EMPTY}
+      VLM_MODEL: ${VLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct}
+      VLM_REQUEST_TIMEOUT_SECONDS: ${VLM_REQUEST_TIMEOUT_SECONDS:-300}
+      VLM_MAX_IMAGES: ${VLM_MAX_IMAGES:-9}
+      VLM_MAX_IMAGE_BYTES: ${VLM_MAX_IMAGE_BYTES:-8388608}
+      VLM_MAX_TOTAL_IMAGE_BYTES: ${VLM_MAX_TOTAL_IMAGE_BYTES:-33554432}
+      VLM_MAX_SOURCE_PIXELS: ${VLM_MAX_SOURCE_PIXELS:-40000000}
+      VLM_MAX_PIXELS_PER_IMAGE: ${VLM_MAX_PIXELS_PER_IMAGE:-589824}
+      VLM_MAX_TOTAL_PIXELS: ${VLM_MAX_TOTAL_PIXELS:-5308416}
+      VLM_MAX_OUTPUT_TOKENS: ${VLM_MAX_OUTPUT_TOKENS:-512}
       LORA_RUNTIME_TIMEOUT_SECONDS: ${LORA_RUNTIME_TIMEOUT_SECONDS:-30}
-      ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS:-4}
+      ORCHESTRATOR_GPU_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_GPU_MAX_CONCURRENT_REQUESTS:-1}
+      ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS:-1}
       ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS:-1}
       ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS: ${ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS:-1}
       RUNTIME_REQUEST_MAX_RETRIES: ${RUNTIME_REQUEST_MAX_RETRIES:-2}
@@ -77,6 +90,8 @@ services:
         condition: service_completed_successfully
       llm-warmup:
         condition: service_completed_successfully
+      vlm-warmup:
+        condition: service_completed_successfully
       asr:
         condition: service_healthy
       tts:
@@ -99,10 +114,11 @@ services:
       - huggingface_cache:/root/.cache/huggingface
       - ../services/runtime/vllm/loras:/models/loras:ro
     command:
-      - --model
-      - ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
+      - ${LLM_MODEL_PATH:-Qwen/Qwen3-30B-A3B-Instruct-2507-FP8}
       - --revision
-      - ${LLM_MODEL_REVISION:-0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe}
+      - ${LLM_MODEL_REVISION:-5a5a776300a41aaa681dd7ff0106608ef2bc90db}
+      - --served-model-name
+      - ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
       - --host
       - 0.0.0.0
       - --port
@@ -117,9 +133,60 @@ services:
       - --max-cpu-loras
       - ${LLM_MAX_CPU_LORAS:-4}
       - --gpu-memory-utilization
-      - ${LLM_GPU_MEMORY_UTILIZATION:-0.65}
+      - ${LLM_GPU_MEMORY_UTILIZATION:-0.40}
       - --max-model-len
       - ${LLM_MAX_MODEL_LEN:-16384}
+      - --max-num-seqs
+      - ${LLM_MAX_NUM_SEQS:-1}
+      - --moe-backend
+      - ${LLM_MOE_BACKEND:-marlin}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\"",
+        ]
+      start_period: 2h
+      interval: 30s
+      timeout: 5s
+      retries: 20
+    expose:
+      - "8000"
+
+  vlm:
+    image: vllm/vllm-openai:latest
+    gpus: all
+    ipc: host
+    shm_size: "8gb"
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    command:
+      - ${VLM_MODEL_PATH:-Qwen/Qwen3-VL-8B-Instruct-FP8}
+      - --revision
+      - ${VLM_MODEL_REVISION:-9cdc6310a8cb770ce18efaf4e9935334512aee45}
+      - --served-model-name
+      - ${VLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --scheduling-policy
+      - priority
+      - --gpu-memory-utilization
+      - ${VLM_GPU_MEMORY_UTILIZATION:-0.18}
+      - --max-model-len
+      - ${VLM_MAX_MODEL_LEN:-8192}
+      - --max-num-seqs
+      - ${VLM_MAX_NUM_SEQS:-1}
+      - --limit-mm-per-prompt
+      - '{"image":${VLM_MAX_IMAGES:-9},"video":0}'
+      - --mm-processor-cache-gb
+      - ${VLM_MM_PROCESSOR_CACHE_GB:-0}
     healthcheck:
       test:
         [
@@ -232,6 +299,24 @@ services:
         "Content-Type: application/json",
         "-d",
         "{\"model\":\"${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":8}",
+      ]
+    restart: "no"
+
+  vlm-warmup:
+    image: curlimages/curl:8.16.0
+    depends_on:
+      vlm:
+        condition: service_healthy
+    command:
+      [
+        "-fsS",
+        "-X",
+        "POST",
+        "http://vlm:8000/v1/chat/completions",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        "{\"model\":\"${VLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct}\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Describe the image briefly.\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=\"}}]}],\"max_tokens\":8,\"temperature\":0}",
       ]
     restart: "no"
 

@@ -8,6 +8,9 @@ services:
   llm:
     restart: unless-stopped
 
+  vlm:
+    restart: unless-stopped
+
   simple-chat-backend:
     restart: unless-stopped
 

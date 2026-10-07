@@ -8,6 +8,7 @@ from starlette.datastructures import FormData
 
 from . import session
 from .lora_routes import router as lora_router
+from .vision_routes import router as vision_router
 from .schemas import (
     CreateSessionRequest,
     CreateSessionResponse,
@@ -26,6 +27,7 @@ app = FastAPI(
 )
 
 app.include_router(lora_router)
+app.include_router(vision_router)
 
 
 def _optional_form_string(value: object) -> str | None:

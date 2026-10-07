@@ -32,6 +32,15 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai-compatible")
 LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "http://llm:8000/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "EMPTY")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+VLM_API_BASE_URL = os.getenv("VLM_API_BASE_URL", "http://vlm:8000/v1")
+VLM_API_KEY = os.getenv("VLM_API_KEY", "EMPTY")
+VLM_MODEL = os.getenv("VLM_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+VLM_REQUEST_TIMEOUT_SECONDS = float(
+    os.getenv("VLM_REQUEST_TIMEOUT_SECONDS", "300")
+)
+ORCHESTRATOR_GPU_MAX_CONCURRENT_REQUESTS = int(
+    os.getenv("ORCHESTRATOR_GPU_MAX_CONCURRENT_REQUESTS", "1")
+)
 ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS = int(
     os.getenv("ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS", "4")
 )
@@ -309,6 +318,7 @@ class PriorityGate:
                 self._condition.notify_all()
 
 
+GPU_INFERENCE_GATE = PriorityGate(ORCHESTRATOR_GPU_MAX_CONCURRENT_REQUESTS)
 LLM_PRIORITY_GATE = PriorityGate(ORCHESTRATOR_LLM_MAX_CONCURRENT_REQUESTS)
 ASR_PRIORITY_GATE = PriorityGate(ORCHESTRATOR_ASR_MAX_CONCURRENT_REQUESTS)
 TTS_PRIORITY_GATE = PriorityGate(ORCHESTRATOR_TTS_MAX_CONCURRENT_REQUESTS)
@@ -377,6 +387,21 @@ def get_llm_client() -> OpenAI:
     return OpenAI(api_key=api_key, base_url=LLM_API_BASE_URL)
 
 
+def get_vlm_client() -> OpenAI:
+    if LLM_PROVIDER != "openai-compatible":
+        raise RuntimeError(f"Unsupported VLM provider: {LLM_PROVIDER}")
+
+    if not VLM_API_KEY:
+        raise RuntimeError("VLM_API_KEY is not set in .env")
+
+    return OpenAI(
+        api_key=VLM_API_KEY,
+        base_url=VLM_API_BASE_URL,
+        timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+        max_retries=RUNTIME_REQUEST_MAX_RETRIES,
+    )
+
+
 def get_deepgram_api_key() -> str:
     api_key = os.getenv("DEEPGRAM_API_KEY")
 
@@ -423,19 +448,20 @@ def call_llm(
 ) -> tuple[str, dict[str, Any]]:
     client = get_llm_client()
 
-    with LLM_PRIORITY_GATE.acquire(priority):
-        response = client.chat.completions.create(
-            model=model or LLM_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            extra_body={
-                "priority": priority,
-            },
-        )
+    with GPU_INFERENCE_GATE.acquire(priority):
+        with LLM_PRIORITY_GATE.acquire(priority):
+            response = client.chat.completions.create(
+                model=model or LLM_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                extra_body={
+                    "priority": priority,
+                },
+            )
 
     text = response.choices[0].message.content or ""
     usage = extract_usage(response)
@@ -456,42 +482,97 @@ def stream_llm(
         "total_tokens": 1,
     }
 
-    with LLM_PRIORITY_GATE.acquire(priority):
-        response = client.chat.completions.create(
-            model=model or LLM_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            stream=True,
-            stream_options={"include_usage": True},
-            extra_body={
-                "priority": priority,
-            },
-        )
+    with GPU_INFERENCE_GATE.acquire(priority):
+        with LLM_PRIORITY_GATE.acquire(priority):
+            response = client.chat.completions.create(
+                model=model or LLM_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                stream=True,
+                stream_options={"include_usage": True},
+                extra_body={
+                    "priority": priority,
+                },
+            )
 
-        try:
-            for chunk in response:
-                chunk_usage = getattr(chunk, "usage", None)
-                if chunk_usage is not None:
-                    usage = extract_usage(chunk)
+            try:
+                for chunk in response:
+                    chunk_usage = getattr(chunk, "usage", None)
+                    if chunk_usage is not None:
+                        usage = extract_usage(chunk)
 
-                choices = getattr(chunk, "choices", None) or []
-                if not choices:
-                    continue
+                    choices = getattr(chunk, "choices", None) or []
+                    if not choices:
+                        continue
 
-                delta = getattr(choices[0], "delta", None)
-                text = getattr(delta, "content", None) if delta is not None else None
-                if text:
-                    yield {"type": "text_delta", "text": str(text)}
-        finally:
-            close = getattr(response, "close", None)
-            if callable(close):
-                close()
+                    delta = getattr(choices[0], "delta", None)
+                    text = getattr(delta, "content", None) if delta is not None else None
+                    if text:
+                        yield {"type": "text_delta", "text": str(text)}
+            finally:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
 
     yield {"type": "usage", "usage": usage}
+
+
+def call_vlm(
+    prompt: str,
+    image_data_urls: list[str],
+    *,
+    max_tokens: int,
+    temperature: float,
+    priority: int = 100,
+    response_schema: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    """Run one bounded, non-streaming multimodal completion."""
+    client = get_vlm_client()
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    content.extend(
+        {
+            "type": "image_url",
+            "image_url": {"url": image_data_url},
+        }
+        for image_data_url in image_data_urls
+    )
+
+    request_kwargs: dict[str, Any] = {}
+    if response_schema is not None:
+        request_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "vision_result",
+                "schema": response_schema,
+            },
+        }
+
+    with GPU_INFERENCE_GATE.acquire(priority):
+        response = client.chat.completions.create(
+            model=VLM_MODEL,
+            messages=[{"role": "user", "content": content}],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            extra_body={"priority": priority},
+            **request_kwargs,
+        )
+
+    text = response.choices[0].message.content or ""
+    structured_output = None
+    if response_schema is not None:
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise RuntimeError("VLM returned invalid structured JSON.") from e
+        if not isinstance(parsed, dict):
+            raise RuntimeError("VLM structured output must be a JSON object.")
+        structured_output = parsed
+
+    return text, extract_usage(response), structured_output
 
 
 def summarise_session(

@@ -11,6 +11,10 @@ services:
     ports:
       - "127.0.0.1:${LLM_PORT:-8020}:8000"
 
+  vlm:
+    ports:
+      - "127.0.0.1:${VLM_PORT:-8060}:8000"
+
   asr:
     ports:
       - "127.0.0.1:${ASR_HTTP_PORT:-8030}:9000"

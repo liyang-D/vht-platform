@@ -13,7 +13,10 @@ LORA_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 LORA_ROOT = Path(os.getenv("LLM_LORA_ROOT", "/models/loras"))
 LLM_RUNTIME_URL = os.getenv("LLM_RUNTIME_URL", "http://llm:8000").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
-LLM_MODEL_REVISION = os.getenv("LLM_MODEL_REVISION", "").strip() or None
+LLM_LORA_BASE_MODEL = os.getenv("LLM_LORA_BASE_MODEL", LLM_MODEL)
+LLM_LORA_BASE_REVISION = (
+    os.getenv("LLM_LORA_BASE_REVISION", "").strip() or None
+)
 LLM_MAX_LORA_RANK = int(os.getenv("LLM_MAX_LORA_RANK", "16"))
 LORA_RUNTIME_TIMEOUT_SECONDS = float(
     os.getenv("LORA_RUNTIME_TIMEOUT_SECONDS", "30")
@@ -132,17 +135,22 @@ def inspect_adapter(name: str, loaded: bool | None = None) -> LoraAdapter:
     base_model = summary_base_model or base_model
     if not base_model:
         raise LoraValidationError("Adapter base model metadata is missing.")
-    if base_model != LLM_MODEL:
+    if base_model != LLM_LORA_BASE_MODEL:
         raise LoraValidationError(
-            f"Adapter requires base model '{base_model}', but runtime uses '{LLM_MODEL}'."
+            f"Adapter requires base model '{base_model}', but runtime expects "
+            f"'{LLM_LORA_BASE_MODEL}'."
         )
 
     base_revision = summary.get("base_revision") or config.get("revision")
     base_revision = str(base_revision).strip() if base_revision else None
-    if LLM_MODEL_REVISION and base_revision and base_revision != LLM_MODEL_REVISION:
+    if (
+        LLM_LORA_BASE_REVISION
+        and base_revision
+        and base_revision != LLM_LORA_BASE_REVISION
+    ):
         raise LoraValidationError(
             f"Adapter requires base revision '{base_revision}', but runtime uses "
-            f"'{LLM_MODEL_REVISION}'."
+            f"'{LLM_LORA_BASE_REVISION}'."
         )
 
     return LoraAdapter(

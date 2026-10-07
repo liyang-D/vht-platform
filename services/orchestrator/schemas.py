@@ -1,6 +1,7 @@
+import json
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from shared.schemas import (
     InteractionMode,
@@ -140,3 +141,59 @@ class LoraAdapterListResponse(BaseModel):
 class LoraAdapterActionResponse(BaseModel):
     adapter: LoraAdapterResponse
     changed: bool
+
+
+class VisionImageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mime_type: str = Field(pattern=r"^image/(jpeg|png|webp)$")
+    data_base64: str = Field(min_length=1, max_length=11_200_000)
+
+
+class VisionAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=32_000)
+    images: list[VisionImageInput] = Field(min_length=1, max_length=9)
+    max_tokens: int = Field(default=512, ge=1, le=512)
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    priority: int = Field(default=100, ge=-1_000_000, le=1_000_000)
+    response_schema: dict[str, Any] | None = None
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("prompt cannot be blank.")
+        return stripped
+
+    @model_validator(mode="after")
+    def validate_aggregate_size(self):
+        if sum(len(image.data_base64) for image in self.images) > 44_800_000:
+            raise ValueError("Combined base64 image payload is too large.")
+        if self.response_schema is not None:
+            encoded_schema = json.dumps(
+                self.response_schema,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            if len(encoded_schema) > 65_536:
+                raise ValueError("response_schema is too large.")
+        return self
+
+
+class VisionImageMetadata(BaseModel):
+    mime_type: str
+    source_width: int
+    source_height: int
+    width: int
+    height: int
+
+
+class VisionAnalyzeResponse(BaseModel):
+    model: str
+    text: str
+    structured_output: dict[str, Any] | None = None
+    usage: dict[str, Any]
+    images: list[VisionImageMetadata]

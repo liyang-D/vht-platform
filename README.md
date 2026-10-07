@@ -8,6 +8,7 @@ service, with shared contracts kept in focused top-level modules.
 - `postgres`: persistent platform database, backed by a Docker named volume.
 - `migrate`: one-shot platform-core database bootstrap/migration container.
 - `llm`: local OpenAI-compatible vLLM runtime, defaulting to `Qwen/Qwen3-30B-A3B-Instruct-2507`.
+- `vlm`: local OpenAI-compatible Qwen3-VL runtime for bounded, event-triggered image analysis.
 - `asr`: local NVIDIA Speech NIM ASR runtime, defaulting to `parakeet-1-1b-ctc-en-us`.
 - `tts`: local Chatterbox-Turbo English TTS runtime.
 - `orchestrator`: internal API used by apps.
@@ -42,8 +43,10 @@ local env files with:
 ./infra/check-env-schema.sh
 ```
 
-Set `HF_TOKEN` in the selected env file so the local vLLM runtime can download
-models from Hugging Face; the orchestrator talks to it through `LLM_API_BASE_URL`.
+Set `HF_TOKEN` in the selected env file so the local vLLM runtimes can download
+models from Hugging Face. `LLM_MODEL` and `VLM_MODEL` are stable public names;
+the internal checkpoints selected by `LLM_MODEL_PATH` and `VLM_MODEL_PATH` may
+change precision without changing client requests or responses.
 Set `NGC_API_KEY` so the NVIDIA Speech NIM ASR runtime can download and cache
 its model artifacts on first start. The optional Magpie/Riva TTS runtime uses
 the same key when enabled through the `riva-tts` Compose profile.
@@ -61,9 +64,22 @@ one-message upload fallback still defaults its orchestrator request to offline
 transcription.
 Projects default to priority `30`; lower numbers are scheduled earlier, combined
 with the orchestrator's request-type priority before calling local runtimes.
-Default dev runtime limits favor headroom over maximum context length:
-`LLM_GPU_MEMORY_UTILIZATION=0.65`, `LLM_MAX_MODEL_LEN=16384`, and ASR/TTS
-runtime gates are set to one concurrent request each.
+Default runtime limits favor unified-memory headroom: the text FP8 runtime uses
+`LLM_GPU_MEMORY_UTILIZATION=0.40` with a 16K context and the VLM FP8 runtime uses
+`VLM_GPU_MEMORY_UTILIZATION=0.18` with an 8K context. Both vLLM runtimes have
+`max-num-seqs=1`; `ORCHESTRATOR_GPU_MAX_CONCURRENT_REQUESTS=1` additionally
+serializes text and vision inference across the two processes.
+The text runtime uses vLLM's Marlin FP8 MoE backend. On GB10 with vLLM 0.22.1,
+this keeps the official FP8 weights while using BF16 activations (W8A16), which
+is compatible with dynamic MoE LoRA loading; the default Triton W8A8 MoE path
+cannot compile its LoRA kernel for `fp8e4nv` on this hardware/software stack.
+
+The internal `POST /vision/analyze` endpoint is intended to be called once when
+an app task completes, not continuously during realtime interaction. It accepts
+1-9 base64 JPEG, PNG, or WebP images, normalizes their orientation and size, and
+caps source pixels, decoded bytes, aggregate pixels, and output tokens. Remote
+image URLs and animated images are intentionally rejected. The default output
+limit is 512 tokens and deterministic calls should keep `temperature=0`.
 
 ## Realtime Turn-Taking
 
