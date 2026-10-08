@@ -54,6 +54,8 @@ class ACEState(MessagesState):
     question_log: list   # one record per finished question, for the end-of-test review JSON
     question_turn_start: int  # index into messages where the in-progress question's turns began
     previous_task_signature: tuple  # (domain, modality) of the most recently finished question, or None
+    debug_linear_flow: bool  # synthetic/admin module navigation bypasses protocol detours
+    awaiting_navigation: bool  # selected debug module finished; wait for another directory choice
 
 session_config_ = None
 tts = None
@@ -353,10 +355,20 @@ def conversation_node(state: ACEState) -> dict:
     """
     global save_ace_file
     save_ace_file = state
+    if hasattr(gui_, "check_jump"):
+        gui_.check_jump()
     domain = state["current_domain"]
     q_index = state["question_index"]
     sub_index = state.get("sub_question_index", 0)
     question = ace_json[domain]["questions"][q_index]
+    directory = domain_directory(state)
+    current_step = sum(item["completed"] for item in directory)
+    total_steps = sum(len(config["questions"]) for config in ace_json.values())
+    if hasattr(gui_, "set_progress"):
+        try:
+            gui_.set_progress(current_step, total_steps, domain, directory)
+        except TypeError:
+            gui_.set_progress(current_step, total_steps, domain)
     # Skip asking if the patient already got this right during delayed recall
     if match_kind(question, sub_index) == "recognition" and recognition_recalled(question, sub_index, state):
         return {"messages": [AIMessage(content=""), HumanMessage(content="")]}
@@ -531,6 +543,142 @@ def question_record(state: ACEState) -> dict:
         "score_cap": question["score_cap"],
     }
 
+
+def upsert_question_record(question_log: list, record: dict) -> list:
+    """Keep one result per domain/question so debug re-runs replace stale data."""
+    return [
+        item for item in question_log
+        if (item.get("domain"), item.get("question_index"))
+        != (record["domain"], record["question_index"])
+    ] + [record]
+
+
+def domain_directory(state: ACEState) -> list[dict]:
+    completed = {
+        (item.get("domain"), item.get("question_index"))
+        for item in state.get("question_log", [])
+    }
+    current_domain = state.get("current_domain")
+    result = []
+    for name, config in ace_json.items():
+        total = len(config["questions"])
+        done = sum((name, index) in completed for index in range(total))
+        if done == total:
+            status = "complete"
+        elif name == current_domain and not state.get("awaiting_navigation"):
+            status = "active"
+        elif done:
+            status = "partial"
+        else:
+            status = "not_started"
+        result.append({"name": name, "completed": done, "total": total, "status": status})
+    return result
+
+
+def partial_domain_results(state: ACEState) -> dict:
+    """Serializable domain view whose unanswered questions and scores remain null."""
+    by_key = {
+        (item.get("domain"), item.get("question_index")): item
+        for item in state.get("question_log", [])
+    }
+    directory = {item["name"]: item for item in domain_directory(state)}
+    result = {}
+    for name, config in ace_json.items():
+        questions = [by_key.get((name, index)) for index in range(len(config["questions"]))]
+        answered = [item for item in questions if item is not None]
+        result[name] = {
+            "status": directory[name]["status"],
+            "score": sum(item["score"] for item in answered) if answered else None,
+            "score_cap": config["score_cap"],
+            "questions": questions,
+        }
+    return result
+
+
+def state_for_domain_jump(state: ACEState, target_domain: str) -> dict:
+    """Preserve completed work and move a debug session to a selected domain."""
+    if target_domain not in ace_json:
+        raise ValueError(f"Unknown ACE domain: {target_domain}")
+    domain_names = list(ace_json)
+    total = len(ace_json[target_domain]["questions"])
+    log = list(state.get("question_log", []))
+    completed = {
+        item.get("question_index") for item in log if item.get("domain") == target_domain
+    }
+    if len(completed) >= total:
+        log = [item for item in log if item.get("domain") != target_domain]
+        completed = set()
+    question_index = next((index for index in range(total) if index not in completed), 0)
+    scores = {name: 0 for name in domain_names}
+    for item in log:
+        if item.get("domain") in scores:
+            scores[item["domain"]] += item.get("score", 0)
+    return {
+        **state,
+        "current_domain": target_domain,
+        "question_index": question_index,
+        "sub_question_index": 0,
+        "question_score": 0,
+        "scores": scores,
+        "domain_queue": [],
+        "complete": False,
+        "needs_repeat": False,
+        "repeat_count": 0,
+        "reprompt_kind": None,
+        "turn_progress": 0,
+        "question_log": log,
+        "question_turn_start": len(state.get("messages", [])),
+        "previous_task_signature": None,
+        "debug_linear_flow": True,
+        "awaiting_navigation": False,
+    }
+
+
+def question_navigation_target(state: ACEState, direction: str) -> tuple[str, int]:
+    questions = [
+        (domain, index)
+        for domain, config in ace_json.items()
+        for index in range(len(config["questions"]))
+    ]
+    current = (state["current_domain"], state["question_index"])
+    position = questions.index(current)
+    offset = -1 if direction == "previous" else 1
+    target_position = position + offset
+    if target_position < 0 or target_position >= len(questions):
+        raise ValueError(f"There is no {direction} question.")
+    return questions[target_position]
+
+
+def state_for_question_jump(state: ACEState, direction: str) -> dict:
+    """Move one question while keeping all other completed question records."""
+    target_domain, target_index = question_navigation_target(state, direction)
+    log = [
+        item for item in state.get("question_log", [])
+        if (item.get("domain"), item.get("question_index")) != (target_domain, target_index)
+    ]
+    scores = {name: 0 for name in ace_json}
+    for item in log:
+        if item.get("domain") in scores:
+            scores[item["domain"]] += item.get("score", 0)
+    return {
+        **state,
+        "current_domain": target_domain,
+        "question_index": target_index,
+        "sub_question_index": 0,
+        "question_score": 0,
+        "scores": scores,
+        "domain_queue": [],
+        "complete": False,
+        "needs_repeat": False,
+        "repeat_count": 0,
+        "reprompt_kind": None,
+        "turn_progress": 0,
+        "question_log": log,
+        "question_turn_start": len(state.get("messages", [])),
+        "previous_task_signature": None,
+        "debug_linear_flow": True,
+        "awaiting_navigation": False,
+    }
 def advance_node(state: ACEState) -> dict:
     """
     Logs the finished question, resets scoring, and routes to the next question.
@@ -542,11 +690,27 @@ def advance_node(state: ACEState) -> dict:
     question = ace_json[domain]["questions"][q_index]
     total_questions = len(ace_json[domain]["questions"])
     # Update log & tracking metadata
-    question_log = state.get("question_log", []) + [question_record(state)]
+    question_log = upsert_question_record(state.get("question_log", []), question_record(state))
     question_turn_start = len(state["messages"])
     previous_task_signature = (domain, task_type(question))
 
-    if domain == "Memory" and q_index == 1:
+    if state.get("debug_linear_flow"):
+        if q_index + 1 < total_questions:
+            result = {
+                "question_index": q_index + 1, "sub_question_index": 0, "question_score": 0,
+                "question_log": question_log, "question_turn_start": question_turn_start,
+                "previous_task_signature": previous_task_signature,
+            }
+        else:
+            q = state["domain_queue"].copy()
+            next_domain = q.pop(0)
+            result = {
+                "current_domain": next_domain, "question_index": 0, "sub_question_index": 0,
+                "question_score": 0, "domain_queue": q, "question_log": question_log,
+                "question_turn_start": question_turn_start,
+                "previous_task_signature": previous_task_signature,
+            }
+    elif domain == "Memory" and q_index == 1:
         # left memory in the json so now i have to detour to fluency before going back to memory for the retrograde questions.
         result = {
             "current_domain": "Fluency", "question_index": 0, "sub_question_index": 0, "question_score": 0,
@@ -614,7 +778,7 @@ def report_node(state: ACEState) -> dict:
     Finishes the ACE-III test reports the scores. Generates a JSON file and ends the session
     """
     # Log the final question since advance_node gets skipped on the last turn
-    question_log = state.get("question_log", []) + [question_record(state)]
+    question_log = upsert_question_record(state.get("question_log", []), question_record(state))
     scores = {domain: 0 for domain in ace_json}
     for record in question_log:
         scores[record["domain"]] += record["score"]
@@ -638,6 +802,7 @@ def report_node(state: ACEState) -> dict:
             "domain_caps": {d: ace_json[d]["score_cap"] for d in ace_json},
             "total_score": total,
             "questions": question_log,
+            "domains": partial_domain_results({**state, "question_log": question_log}),
         }, f, indent=2)
     print(f"\nSaved results to {out_path}")
 
@@ -653,6 +818,22 @@ def report_node(state: ACEState) -> dict:
     gui_.close()
 
     return {"complete": True}
+
+
+def debug_pause_node(state: ACEState) -> dict:
+    """Finish one selected debug module without pretending the whole ACE is complete."""
+    global save_ace_file
+    question_log = upsert_question_record(state.get("question_log", []), question_record(state))
+    paused_state = {**state, "question_log": question_log, "awaiting_navigation": True}
+    save_ace_file = paused_state
+    save_progress(paused_state)
+    directory = domain_directory(paused_state)
+    completed = sum(item["completed"] for item in directory)
+    total = sum(item["total"] for item in directory)
+    gui_.set_progress(completed, total, state["current_domain"], directory)
+    gui_.add_message("assessor", "Module complete. Select another module from the assessment directory.")
+    gui_.wait_for("navigation")
+    return paused_state
 
 # Routes Flow of StateMachine
 def router(state: ACEState) -> str:
@@ -672,6 +853,10 @@ def router(state: ACEState) -> str:
     if prompts and sub_index < len(prompts):
         return "next_sub_question"
     total_questions = len(ace_json[domain]["questions"])
+    if state.get("debug_linear_flow"):
+        if q_index + 1 < total_questions:
+            return "next_question"
+        return "next_domain" if state["domain_queue"] else "debug_pause"
     # More questions left in current domain?
     if q_index + 1 < total_questions:
         return "next_question"
@@ -699,6 +884,7 @@ def save_progress(state: ACEState) -> str:
     # Serializes state attributes and converts LangChain messages into simple dicts
     with open(out_path, "w") as f:
         json.dump({
+            "schema_version": 2,
             "current_domain": state["current_domain"],
             "question_index": state["question_index"],
             "sub_question_index": state.get("sub_question_index", 0),
@@ -714,6 +900,9 @@ def save_progress(state: ACEState) -> str:
             "question_log": state.get("question_log", []),
             "question_turn_start": state.get("question_turn_start", 0),
             "previous_task_signature": state.get("previous_task_signature"),
+            "debug_linear_flow": state.get("debug_linear_flow", False),
+            "awaiting_navigation": state.get("awaiting_navigation", False),
+            "domains": partial_domain_results(state),
             "messages": [{"role": m.type, "content": m.content} for m in state["messages"]],
         }, f, indent=2)
     return out_path
@@ -723,6 +912,7 @@ builder.add_node("conversation", conversation_node)
 builder.add_node("scoring", scoring_node)
 builder.add_node("advance", advance_node)
 builder.add_node("report", report_node)
+builder.add_node("debug_pause", debug_pause_node)
 
 builder.add_edge(START, "conversation")
 builder.add_edge("conversation", "scoring")
@@ -732,8 +922,10 @@ builder.add_conditional_edges("scoring", router, {
     "next_question": "advance",
     "next_domain": "advance",
     "report": "report",
+    "debug_pause": "debug_pause",
 })
 builder.add_edge("advance", "conversation")
 builder.add_edge("report", END)
+builder.add_edge("debug_pause", END)
 
 graph = builder.compile()

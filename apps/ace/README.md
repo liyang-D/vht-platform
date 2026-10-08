@@ -40,7 +40,10 @@ ssh -N -L 8071:127.0.0.1:8071 USER@DGX_HOST
 
 Then open `http://127.0.0.1:8071/`. Localhost is required for browser media
 permissions over HTTP. Verify every location and current/previous leader field
-before starting; the supplied sample config is not used.
+before starting. The leader fields are prefilled from `ACE_CURRENT_UK_PM`,
+`ACE_CURRENT_US_PRESIDENT`, `ACE_PREVIOUS_UK_PM`, and
+`ACE_PREVIOUS_US_PRESIDENT`; update those environment values and restart
+`ace-backend` when an office holder changes.
 
 Use **Save checkpoint** before a planned restart. Copy the displayed session ID,
 restart only the ACE backend if needed, and use **Resume checkpoint**. A
@@ -61,6 +64,19 @@ docker run --rm --entrypoint python \
 `tests/live_visual_smoke.py` verifies that all five original visual prompts
 produce parseable JSON through the deployed VHT VLM. It is a transport smoke
 test, not an accuracy claim.
+
+The complete local evaluation has a single operator-only CLI (no Web route):
+
+```bash
+apps/ace/ace-eval list
+apps/ace/ace-eval import-existing
+apps/ace/ace-eval run --batch BATCH --group unit --group llm --group vision
+apps/ace/ace-eval report --batch BATCH
+```
+
+It supports `--test`, `--case`, inclusive `--range START:END`, `--all`, and
+resume by passing the same `--batch`. See `apps/ace/evaluation/README.md` for
+the stable IDs, exit codes, timestamped batch layout, and rerun safeguards.
 
 ## Data handling
 

@@ -32,7 +32,8 @@
       </form>
       <form id="resume-form"><label>Existing session ID<input id="resume-id" /></label><button class="secondary">Resume checkpoint</button></form>
     </section>
-    <section id="session" class="card hidden">
+    <div id="assessment-layout" class="assessment-layout hidden">
+    <section id="session" class="card">
       <div class="status"><span id="status-dot"></span><span id="status-text">Starting</span></div>
       <h2 id="prompt">Preparing the first question…</h2>
       <audio id="audio" controls autoplay></audio>
@@ -47,7 +48,22 @@
       <button id="pause" class="secondary">Save checkpoint</button>
       <pre id="error"></pre>
     </section>
+    <aside id="assessment-directory" class="directory-card">
+      <div class="progress-heading"><span>Assessment directory</span><strong id="progress-label">Preparing…</strong></div>
+      <div id="progress-track" class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-bar"></div></div>
+      <div class="question-navigation" aria-label="Question navigation">
+        <button id="previous-question" class="secondary" type="button" disabled>← Previous</button>
+        <button id="next-question" class="secondary" type="button" disabled>Next →</button>
+      </div>
+      <nav aria-label="ACE assessment domains"><ol id="domain-list" class="domain-list"></ol></nav>
+      <p id="navigation-hint" class="navigation-hint">Progress is view only for this session.</p>
+    </aside>
+    </div>
+    <section class="console-card">
+      <div class="console-title"><div><h2>Debug log</h2><p>Recording, playback, upload and runtime events.</p></div><button id="clear-console" class="secondary" type="button">Clear</button></div>
+      <pre id="debug-console" aria-live="polite"></pre>
+    </section>
   </main>
-  <script src="app.js"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>
