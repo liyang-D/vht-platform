@@ -2,6 +2,21 @@ import re
 from langchain_core.messages import SystemMessage, HumanMessage
 from LLM.LLM import llm_strict, llm_warm
 
+
+OPENING_BODY = (
+    "It's nice to meet you. I'm going to begin a short cognitive assessment to better understand "
+    "how your thinking and memory are working. I'll be asking you a few questions, and I'll need "
+    "you to have a pen and a few sheets of paper in front of you so you can write down your answers "
+    "when needed. We'll go at your pace—just take your time and do your best. I'm here to help, so "
+    "don't worry about getting everything perfect. Let's begin."
+)
+
+
+def opening_parts(patient_name: str, first_question: str) -> tuple[str, str]:
+    """Return the live personalised greeting and reviewed fixed opening body."""
+    return f"Good morning, {patient_name}.", f"{OPENING_BODY} {first_question}"
+
+
 def introduce(patient_name: str) -> str:
     """Brief, warm one-time introduction spoken before the very first question of the session."""
     result = llm_warm.invoke([

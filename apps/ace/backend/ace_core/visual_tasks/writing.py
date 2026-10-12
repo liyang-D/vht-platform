@@ -1,3 +1,4 @@
+import json
 import os
 
 import spacy
@@ -76,23 +77,46 @@ spelling or grammar — transcribe it as written.
 Respond with a single JSON object and nothing else — no preamble, no explanation, no markdown fences.
 
 {
-  "transcription": "<the transcribed text>"
+  "transcription": "<the transcribed text>",
+  "sentence_count": "<integer count of distinct attempted sentences visible on the page>"
 }
 """
 
 transcribe_llm = build_client(0.0, 4000)
 
+def inspect_writing_image(image_path: str) -> dict:
+    """Return the transcription and visible attempted-sentence count."""
+    data = describe_images(transcribe_llm, transcribe_prompt, [image_path])
+    text = data.get("transcription", "")
+    try:
+        sentence_count = max(0, int(data.get("sentence_count", 0)))
+    except (TypeError, ValueError):
+        sentence_count = len([sentence for sentence in nlp(text).sents if sentence.text.strip()])
+    return {"transcription": text, "sentence_count": sentence_count}
+
+
 def transcribe_writing(image_path: str) -> str:
     """Send the photographed writing sample to the VLM and return its plain-text
     transcription. Returns "" on any connection failure or malformed response."""
-    data = describe_images(transcribe_llm, transcribe_prompt, [image_path])
-    return data.get("transcription", "")
+    return inspect_writing_image(image_path)["transcription"]
 
 def score_writing_image(image_path: str) -> dict:
     """Transcribe the photographed writing sample via VLM, then score it against
     the ACE-III sentence-writing criteria."""
-    text = transcribe_writing(image_path) if os.path.exists(image_path) else image_path
+    inspection = None
+    if isinstance(image_path, str) and image_path.lstrip().startswith("{"):
+        try:
+            payload = json.loads(image_path)
+            inspection = payload.get("inspection")
+            image_path = payload.get("final_image", image_path)
+        except (ValueError, TypeError):
+            inspection = None
+    text = (
+        inspection.get("transcription", "")
+        if isinstance(inspection, dict)
+        else transcribe_writing(image_path) if os.path.exists(image_path) else image_path
+    )
     total = score_sentence_writing(text) if text else 0
-    result = {"total": total}
-    save_vlm_response("writing", image_path, {"transcription": text}, result)
+    result = {"total": total, "sentence_count": (inspection or {}).get("sentence_count")}
+    save_vlm_response("writing", image_path, inspection or {"transcription": text}, result)
     return result

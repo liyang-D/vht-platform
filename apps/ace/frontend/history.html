@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ACE Session History</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <header class="history-header">
+      <div><span class="eyebrow">VHT APP</span><h1>Session history</h1><p>Draft, partial and complete pilot sessions.</p></div>
+      <a class="button-link secondary" href="/">Back to assessment</a>
+    </header>
+    <section class="card">
+      <div class="history-toolbar"><p id="history-count">Loading…</p><button id="refresh-history" class="secondary">Refresh</button></div>
+      <div id="history-list" class="history-list"></div>
+    </section>
+    <dialog id="history-detail"><button id="close-history-detail" class="dialog-close">Close</button><div id="history-detail-content"></div></dialog>
+  </main>
+  <script src="history.js?v=1"></script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 from metaphone import doublemetaphone
+import json
 import re
 from nltk.corpus import wordnet as wn
 import rapidfuzz
@@ -479,6 +480,20 @@ def score_question(response, question, sub_index=None):
         return score_writing_image(response)["total"]
     if match_type == "infinity":
         return score_infinity_image(response)["total"]
+    if match_type == "picture_naming":
+        try:
+            responses = json.loads(response).get("responses", [])
+        except (ValueError, TypeError, AttributeError):
+            return 0
+        by_grid_index = {
+            item.get("grid_index"): item.get("response", "")
+            for item in responses if isinstance(item, dict)
+        }
+        total = 0
+        for index, expected in enumerate(answers):
+            spoken = by_grid_index.get(index, "")
+            total += score_fuzzy(spoken, [expected])
+        return total
     if not answers:
         return 0
 

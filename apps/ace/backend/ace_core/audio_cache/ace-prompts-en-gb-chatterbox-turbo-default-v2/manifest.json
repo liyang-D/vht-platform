@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "manifest_version": "ace-prompts-en-gb-chatterbox-turbo-default-v2",
+  "immutable": true,
+  "scope": "Reviewed fixed prompts plus the reusable opening body",
+  "entries": [
+    {
+      "prompt_id": "memory.name_address.trial_1",
+      "text": "I am going to give you a name and address and I would like you to repeat them after me. We will do this three times so you have a chance to learn it. I will ask you again later. Harry Barnes, 73 Orchard Close, Kingsbridge, Devon.",
+      "text_sha256": "14e16e85c9ff04c766388f95b436858724b89d04a54791d82bff888d1f39c216",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "memory.name_address.trial_1.wav",
+      "audio_sha256": "6f54e1d76e7f211650050282ab440021e323cd1763bc0b269dedded59e45f5c9"
+    },
+    {
+      "prompt_id": "language.pen_paper.practice",
+      "text": "Pick up the pencil and then the paper.",
+      "text_sha256": "2e4efa65f41dc81a2b2fa155169fb1a06289a8ad7f4ef1d6fa703bbfc64b57cd",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.pen_paper.practice.wav",
+      "audio_sha256": "9343157b20cb76ed0e36d5ec8a467723d0e831e38a85d67dfc4fe6e9d52c8fce"
+    },
+    {
+      "prompt_id": "language.pen_paper.1",
+      "text": "Place the paper on top of the pencil.",
+      "text_sha256": "1580f7f4119f81c1ba673f93e5a8c7846f1fa7a925957ed2dd8ae2a02806e817",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.pen_paper.1.wav",
+      "audio_sha256": "bc7714e8cad79fccf18f0181c267e33534fe4f0472d2bc6982cfead17f47ebf7"
+    },
+    {
+      "prompt_id": "language.pen_paper.2",
+      "text": "Pick up the pencil but not the paper.",
+      "text_sha256": "8e54bc64ccb67200dfd0cabb9a829072b9753594b580bd0132946b3e0c83d7f3",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.pen_paper.2.wav",
+      "audio_sha256": "7eecf8d99ecaf5cfb40e4d0379a3fc03d7613ed228296be2221c6dbd95060889"
+    },
+    {
+      "prompt_id": "language.pen_paper.3",
+      "text": "Pick up the pencil after touching the paper.",
+      "text_sha256": "1faed3c8e481f3d212a53d80fcd12107e0803d2a802e274383669c56daee1252",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.pen_paper.3.wav",
+      "audio_sha256": "eb9fa4559e425a13cf2f7bf7e8883edacd0bd52ad23d1a6277d7c3faa03b6aaa"
+    },
+    {
+      "prompt_id": "language.word_repetition.1",
+      "text": "Repeat after me: caterpillar.",
+      "text_sha256": "f7004e41be7c86f9e5066b4d54c6e83d1f57bc77f6e64c3d1355f5c5c2ff6e7c",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.word_repetition.1.wav",
+      "audio_sha256": "510fb20a7e2aca6e67577c3b4c67c74142e878e0cf80a3d78dd23999797d9c9b"
+    },
+    {
+      "prompt_id": "language.word_repetition.2",
+      "text": "Now say: eccentricity.",
+      "text_sha256": "82301c696dd34ef4b394bbbd929a8f65ee87b2aa1f25a48b1d5ba6d0b794c57e",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.word_repetition.2.wav",
+      "audio_sha256": "8760e9646cc899e09eb35502bfecde7f813a5a22a4e9680fa693ce633c8e6b2d"
+    },
+    {
+      "prompt_id": "language.word_repetition.3",
+      "text": "Now say: unintelligible.",
+      "text_sha256": "be84811ddda93d08304e9fc10b00567c0d05e598388c137e1c0af3e37ee8c347",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.word_repetition.3.wav",
+      "audio_sha256": "fdf58b2e6161c96fc7b8db5d13c61aa27f2a91adfd5f6b1a79c5db9c62b7b001"
+    },
+    {
+      "prompt_id": "language.word_repetition.4",
+      "text": "Now say: statistician.",
+      "text_sha256": "472d5816e195c4cc60588630ca6671b6b6171c3b5b9ce82b68d676bc6b731356",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.word_repetition.4.wav",
+      "audio_sha256": "553567971837dc6a8e08b58f7e794a4a0b4f199b9e41e876751a387b0d8eb744"
+    },
+    {
+      "prompt_id": "language.comprehension.monarchy",
+      "text": "Looking at the pictures on the screen, which one is associated with the monarchy?",
+      "text_sha256": "e4a5a838c9043b21db17c44491e8a478fb87657ec829815abba1404a9cce2e0e",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.comprehension.monarchy.wav",
+      "audio_sha256": "e355a1a64ba28f0607d54fcbe35b1cba6096937913a28e0f55c01bd83ab3359a"
+    },
+    {
+      "prompt_id": "language.comprehension.marsupial",
+      "text": "Which one is the marsupial?",
+      "text_sha256": "6a65543e55ab72cf9af1309d10b9e56d9fb237b4a43b1874cbfb6e8e2db92ded",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.comprehension.marsupial.wav",
+      "audio_sha256": "b54be34ae7eb49ec170e192ede85b0946555345d3a11e6d932143d1ec30620ba"
+    },
+    {
+      "prompt_id": "language.comprehension.antarctic",
+      "text": "Which one is found in the Antarctic?",
+      "text_sha256": "28408364660eaf9c20a732d0d7d6e495c25bdf9e211084e825d5c921faa36036",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.comprehension.antarctic.wav",
+      "audio_sha256": "02292e0f059826ab67a0956bb73e9943365ebcffb31104ea40d457b90c5787d5"
+    },
+    {
+      "prompt_id": "language.comprehension.nautical",
+      "text": "Which one has a nautical connection?",
+      "text_sha256": "222cb805ce3f59d0d58386e240089b7e7fe25794f25128ed1be2f85a83df8707",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "language.comprehension.nautical.wav",
+      "audio_sha256": "d10986cbce8c6655b8f9b5b34f6548d804239b70b537be7f8cbbd1fc275f649e"
+    },
+    {
+      "prompt_id": "session.opening.body",
+      "text": "It's nice to meet you. I'm going to begin a short cognitive assessment to better understand how your thinking and memory are working. I'll be asking you a few questions, and I'll need you to have a pen and a few sheets of paper in front of you so you can write down your answers when needed. We'll go at your pace\u2014just take your time and do your best. I'm here to help, so don't worry about getting everything perfect. Let's begin. What day of the week is it?",
+      "text_sha256": "ffef24fa4418f9873deb12ecab60f7752de982ffcd4c05eece8ce15ec0ad3c12",
+      "language": "en-GB",
+      "voice": "default",
+      "tts_model": "chatterbox-turbo",
+      "tts_model_version": "chatterbox-tts==0.1.7",
+      "generation_settings": {
+        "priority": 50
+      },
+      "audio_format": "wav",
+      "mime_type": "audio/wav",
+      "file": "session.opening.body.wav",
+      "audio_sha256": "9b611b7d109b0d3ec2cf07177f86344583ccf0cb6c81c700ab8ebdf319c89f28"
+    }
+  ]
+}

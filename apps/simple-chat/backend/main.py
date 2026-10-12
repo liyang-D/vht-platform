@@ -12,6 +12,7 @@ import flow
 import history_repository
 import orchestrator_client
 import realtime
+from shared.observability import install_http_observability
 from shared.scenarios import default_scenario
 
 
@@ -45,6 +46,7 @@ def realtime_transport() -> str:
     return value if value in {"auto", "webrtc", "websocket"} else "auto"
 
 app = FastAPI(title="Simple Chat Backend", version="0.1.0")
+logger = install_http_observability(app, "simple-chat-backend")
 
 app.add_middleware(
     CORSMiddleware,

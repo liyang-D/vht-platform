@@ -247,6 +247,8 @@
                 {
                     "question_text": "Writing: Write two complete sentences.",
                     "instructions": "Instruct carer to position the camera to show the paper clearly. Speak: 'I want you to write two sentences. It can be about anything you like. Write in full sentences and avoid abbreviations.' If only one sentence is written speak: 'Can you write another sentence?' Wait for a response.",
+                    "initial_prompt": "I want you to write two sentences. It can be about anything you like. Write in full sentences and avoid abbreviations.",
+                    "one_sentence_followup": "Can you write another sentence?",
                     "score_cap": 2,
                     "match_type": "sentances",
                     "answers": [],
@@ -307,7 +309,8 @@
                     "question_text": "Naming: Name the 12 pictures shown on screen.",
                     "instructions": "Show image to participant. Speak: 'I am going to show you some pictures on the screen. Please name each one.' Point to each picture in order from top-left to bottom-right. Wait for a response.",
                     "score_cap": 12,
-                    "match_type": "fuzzy_list",
+                    "match_type": "picture_naming",
+                    "presentation": "sequential_grid_highlight",
                     "answers": [
                         "spoon",
                         "book",
@@ -406,6 +409,8 @@
                 {
                     "question_text": "Clock: Draw a clock face showing ten past five.",
                     "instructions": "Instruct carer to place a pencil and a blank piece of paper in front of the participant and position the camera to show the paper. Speak: 'Please draw a clock face with all the numbers on it.' Wait for a response. Speak: 'Now put the hands at ten past five.' Wait for a response.",
+                    "clock_face_prompt": "Please draw a clock face with all the numbers on it.",
+                    "clock_hands_prompt": "Now put the hands at ten past five.",
                     "score_cap": 5,
                     "match_type": "clock",
                     "answers": [],

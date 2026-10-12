@@ -31,6 +31,10 @@ def run_visual_task(*_args, **_kwargs):
 
 def run_click_task(*_args, **_kwargs):
     raise RuntimeError("A session I/O adapter has not been configured.")
+
+
+def run_picture_naming_task(*_args, **_kwargs):
+    raise RuntimeError("A session I/O adapter has not been configured.")
 def furhat_nod(_furhat):
     return None
 
@@ -361,6 +365,8 @@ def conversation_node(state: ACEState) -> dict:
     q_index = state["question_index"]
     sub_index = state.get("sub_question_index", 0)
     question = ace_json[domain]["questions"][q_index]
+    if hasattr(gui_, "set_question_context"):
+        gui_.set_question_context(domain, q_index, sub_index)
     directory = domain_directory(state)
     current_step = sum(item["completed"] for item in directory)
     total_steps = sum(len(config["questions"]) for config in ace_json.values())
@@ -376,6 +382,9 @@ def conversation_node(state: ACEState) -> dict:
     # Route drawing/visual tasks to their own handler
     if question.get("match_type") in ("clock", "pen_paper", "cube", "infinity", "sentances"):
         return run_visual_task(state, question, tts, audio_, session_config_, gui_)
+
+    if question.get("match_type") == "picture_naming":
+        return run_picture_naming_task(state, question, tts, audio_, session_config_, gui_)
 
     # Route interactive click-on-screen pointing task
     if is_click_point_question(question):
@@ -395,19 +404,26 @@ def conversation_node(state: ACEState) -> dict:
     else:
         spoken = parse_spoken_prompts(question)
         text = spoken[0] if spoken else question["question_text"]
+    is_opening = not state["messages"]
     # Check if a custom reprompt function exists for this question type
     kind = match_kind(question, sub_index)
     reprompt_fn = _HANDLERS[kind][1] if kind else None
     reprompt = reprompt_fn(state, question, text) if reprompt_fn else None
+    wrapper = ""
     # Determine what to say out loud
-    if reprompt:
+    opening_audio_parts = None
+    if is_opening:
+        from LLM.dialogue import opening_parts
+        opening_audio_parts = opening_parts(session_config_["patient"]["name"], text)
+        spoken_text = " ".join(opening_audio_parts)
+    elif reprompt:
         spoken_text = reprompt
     elif state.get("needs_repeat"):
         if tts.furhat:
             furhat_repeat(tts.furhat)
         spoken_text = rephrase_question(text)
     else:
-        wrapper = transition_que(
+        wrapper = "" if is_opening else transition_que(
             state, session_config_["patient"]["name"], domain, task_type(question), sub_index,
         )
         if wrapper and tts.furhat:
@@ -416,7 +432,12 @@ def conversation_node(state: ACEState) -> dict:
 
     # Output text to console, GUI, and Text-to-Speech
     gui_.add_message("assessor", spoken_text)
-    tts.speak(spoken_text)
+    if opening_audio_parts and hasattr(tts, "speak_opening"):
+        tts.speak_opening(*opening_audio_parts)
+    elif not reprompt and not state.get("needs_repeat") and not wrapper and hasattr(tts, "speak_fixed"):
+        tts.speak_fixed(text)
+    else:
+        tts.speak(spoken_text)
     print("Assessor:", spoken_text)
     # Listen for the patient's answer (up to 2 x 60 seconds retries if audio comes back empty)
     question_key = (domain, q_index, sub_index)
@@ -476,7 +497,7 @@ def scoring_node(state: ACEState) -> dict:
 
     kind = match_kind(question, sub_index)
 
-    is_visual = question.get("match_type") in ("clock", "pen_paper", "cube", "infinity", "sentances")
+    is_visual = question.get("match_type") in ("clock", "pen_paper", "cube", "infinity", "sentances", "picture_naming")
 
     skip_repeat = (
         is_fluency or is_visual or match_type == "serial_sevens"
@@ -531,16 +552,36 @@ def question_record(state: ACEState) -> dict:
 
     # Grab all patient responses given during this question's attempts
     start = state.get("question_turn_start", 0)
-    responses = [m.content for m in state["messages"][start:] if isinstance(m, HumanMessage)]
+    response_messages = [
+        message for message in state["messages"][start:]
+        if isinstance(message, HumanMessage)
+        and not message.additional_kwargs.get("writing_scoring_payload")
+    ]
+    responses = [m.content for m in response_messages]
 
+    score = state.get("question_score", 0)
     return {
         "domain": domain,
         "question_index": q_index,
         "question_text": question.get("question_text"),
         "match_type": question.get("match_type", "fuzzy_list"),
         "response": responses,
-        "score": state.get("question_score", 0),
+        "score": score,
         "score_cap": question["score_cap"],
+        "attempts": [
+            {
+                "attempt": index + 1,
+                "response": message.content,
+                "input_metadata": message.additional_kwargs or None,
+            }
+            for index, message in enumerate(response_messages)
+        ],
+        "rule_processing": {
+            "match_type": question.get("match_type", "fuzzy_list"),
+            "awarded_score": score,
+            "available_score": question["score_cap"],
+        },
+        "manual_review_note": None,
     }
 
 
@@ -593,6 +634,58 @@ def partial_domain_results(state: ACEState) -> dict:
             "questions": questions,
         }
     return result
+
+
+def partial_report_payload(state: ACEState, session_id: str) -> dict:
+    """Build a non-diagnostic report from completed questions only."""
+    records = list(state.get("question_log", []))
+    by_domain = {name: [] for name in ace_json}
+    for record in records:
+        if record.get("domain") in by_domain:
+            by_domain[record["domain"]].append(record)
+    domains = {}
+    for name, config in ace_json.items():
+        completed = by_domain[name]
+        completed_indices = {item["question_index"] for item in completed}
+        domains[name] = {
+            "earned_score": sum(item.get("score", 0) for item in completed),
+            "attempted_available_score": sum(item.get("score_cap", 0) for item in completed),
+            "completed_questions": len(completed_indices),
+            "total_questions": len(config["questions"]),
+            "unanswered_question_indices": [
+                index for index in range(len(config["questions"])) if index not in completed_indices
+            ],
+        }
+    completed_count = sum(item["completed_questions"] for item in domains.values())
+    return {
+        "schema_version": 2,
+        "report_type": "partial",
+        "completion_status": "partial",
+        "session_id": session_id,
+        "date": datetime.now().isoformat(),
+        "completed_question_count": completed_count,
+        "total_question_count": sum(len(config["questions"]) for config in ace_json.values()),
+        "earned_score_on_completed_questions": sum(item["earned_score"] for item in domains.values()),
+        "available_score_on_completed_questions": sum(
+            item["attempted_available_score"] for item in domains.values()
+        ),
+        "score_notice": (
+            "Partial administration: this is not an ACE-III score out of 100 and must not be used "
+            "for diagnostic thresholds."
+        ),
+        "domains": domains,
+        "questions": records,
+    }
+
+
+def save_partial_report(state: ACEState, session_id: str, output_dir: str) -> tuple[str, dict]:
+    report = partial_report_payload(state, session_id)
+    reports_dir = os.path.join(output_dir, "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    path = os.path.join(reports_dir, f"partial_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json")
+    with open(path, "w") as handle:
+        json.dump(report, handle, indent=2)
+    return path, report
 
 
 def state_for_domain_jump(state: ACEState, target_domain: str) -> dict:
@@ -685,6 +778,7 @@ def advance_node(state: ACEState) -> dict:
     Handles standard domain progression plus custom detour logic for the ACE-III
     (interleaving Fluency & Visuospatial between Memory recall steps).
     """
+    global save_ace_file
     domain = state["current_domain"]
     q_index = state["question_index"]
     question = ace_json[domain]["questions"][q_index]
@@ -767,7 +861,8 @@ def advance_node(state: ACEState) -> dict:
               "reprompt_kind": None, "turn_progress": 0}
 
     # Auto-save progress pointing at the upcoming state
-    save_progress({**state, **result})
+    save_ace_file = {**state, **result}
+    save_progress(save_ace_file)
     return result
 
 results_dir = os.getenv("ACE_SESSION_DATA_DIR", os.path.join(os.path.dirname(__file__), "results"))
@@ -795,6 +890,10 @@ def report_node(state: ACEState) -> dict:
     out_path = os.path.join(results_dir, f"ACE-III_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     with open(out_path, "w") as f:
         json.dump({
+            "schema_version": 2,
+            "report_type": "complete",
+            "completion_status": "complete",
+            "session_id": os.path.basename(os.path.abspath(results_dir)),
             "patient": session_config_.get("patient"),
             "assessor": session_config_.get("assessor"),
             "date": datetime.now().isoformat(),

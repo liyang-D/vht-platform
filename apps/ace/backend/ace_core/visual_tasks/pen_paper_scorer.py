@@ -34,6 +34,13 @@ Respond with a single JSON object and nothing else — no preamble, no explanati
 
 llm = build_client(0.0, 20000)
 
+STEP_INSTRUCTIONS = {
+    "practice": "Pick up the pencil and then the paper.",
+    "paper_placed_on_pencil": "Place the paper on top of the pencil.",
+    "pencil_lifted_without_paper": "Pick up the pencil but not the paper.",
+    "pencil_lifted_after_touching_paper": "Pick up the pencil after touching the paper.",
+}
+
 
 def _extract_frames(video_path: str, output_dir: str, num_frames: int = frames, motion_floor: float = 2.0) -> list[str]:
     """Split the whole clip into `num_frames` picks spread across the
@@ -76,6 +83,28 @@ def score_pen_paper(data: dict) -> dict:
     ]
 
     return {"total": sum(checks)}
+
+
+def evaluate_pen_paper_step(video_path: str, step_id: str) -> dict:
+    """Judge one separately recorded command, preserving temporal alignment."""
+    instruction = STEP_INSTRUCTIONS[step_id]
+    output_dir = os.path.join(FRAMES_DIR, os.path.splitext(os.path.basename(video_path))[0])
+    frame_paths = _extract_frames(video_path, output_dir)
+    prompt = f"""You are reviewing one ACE-III pencil-and-paper command.
+The participant was instructed: {instruction}
+Judge only whether that exact action is visibly completed in these chronological frames.
+Do not infer an action that is not visible. Use unclear when evidence is insufficient.
+Return JSON only: {{"performed": "yes/no/unclear", "notes": "brief observation"}}"""
+    data = describe_images(llm, prompt, frame_paths)
+    result = {
+        "step_id": step_id,
+        "instruction": instruction,
+        "performed": str(data.get("performed", "unclear")).strip().lower(),
+        "notes": data.get("notes"),
+        "video_path": video_path,
+    }
+    save_vlm_response(f"pen_paper_{step_id}", video_path, data, result)
+    return result
 
 
 def score_pen_paper_video(video_path: str) -> dict:

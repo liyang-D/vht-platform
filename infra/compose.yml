@@ -1,5 +1,17 @@
+x-observability-env: &observability-env
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DATABASE_EVENT_LOGGING: ${DATABASE_EVENT_LOGGING:-true}
+
+x-service-defaults: &service-defaults
+  logging:
+    driver: json-file
+    options:
+      max-size: ${CONTAINER_LOG_MAX_SIZE:-20m}
+      max-file: ${CONTAINER_LOG_MAX_FILES:-5}
+
 services:
   postgres:
+    <<: *service-defaults
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vht_dev}
@@ -14,6 +26,7 @@ services:
       retries: 20
 
   migrate:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: platform_core/Dockerfile
@@ -21,6 +34,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       DEFAULT_PROJECT_NAME: ${DEFAULT_PROJECT_NAME:-Mini Project Template}
       APP_ACCESS_KEY: ${APP_ACCESS_KEY:-dev-template-key}
+      OPERATIONAL_EVENT_RETENTION_DAYS: ${OPERATIONAL_EVENT_RETENTION_DAYS:-90}
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,10 +42,12 @@ services:
     restart: "no"
 
   orchestrator:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: services/orchestrator/Dockerfile
     environment:
+      <<: *observability-env
       DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       LLM_API_BASE_URL: ${LLM_API_BASE_URL:-http://llm:8000/v1}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai-compatible}
@@ -100,6 +116,7 @@ services:
       - "8000"
 
   llm:
+    <<: *service-defaults
     image: vllm/vllm-openai:latest
     gpus: all
     ipc: host
@@ -154,6 +171,7 @@ services:
       - "8000"
 
   vlm:
+    <<: *service-defaults
     image: vllm/vllm-openai:latest
     gpus: all
     ipc: host
@@ -201,6 +219,7 @@ services:
       - "8000"
 
   asr:
+    <<: *service-defaults
     image: nvcr.io/nim/nvidia/${ASR_NIM_CONTAINER_ID:-parakeet-1-1b-ctc-en-us}:${ASR_NIM_TAG:-latest}
     user: "0:0"
     gpus: all
@@ -228,6 +247,7 @@ services:
       - "50051"
 
   tts:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: services/runtime/tts/chatterbox/Dockerfile
@@ -258,6 +278,7 @@ services:
       - "8000"
 
   tts-riva:
+    <<: *service-defaults
     image: nvcr.io/nim/nvidia/${TTS_NIM_CONTAINER_ID:-magpie-tts-multilingual}:${TTS_NIM_TAG:-latest}
     profiles:
       - riva-tts
@@ -283,6 +304,7 @@ services:
       - "50051"
 
   llm-warmup:
+    <<: *service-defaults
     image: curlimages/curl:8.16.0
     environment:
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}
@@ -303,6 +325,7 @@ services:
     restart: "no"
 
   vlm-warmup:
+    <<: *service-defaults
     image: curlimages/curl:8.16.0
     depends_on:
       vlm:
@@ -321,10 +344,12 @@ services:
     restart: "no"
 
   simple-chat-backend:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: apps/simple-chat/backend/Dockerfile
     environment:
+      <<: *observability-env
       DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       ORCHESTRATOR_URL: http://orchestrator:8000
       APP_ACCESS_KEY: ${APP_ACCESS_KEY:-dev-template-key}
@@ -367,6 +392,7 @@ services:
       - "8010"
 
   simple-chat-frontend:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: apps/simple-chat/frontend/Dockerfile
@@ -382,10 +408,13 @@ services:
       - "80"
 
   ace-backend:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: apps/ace/backend/Dockerfile
     environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       ORCHESTRATOR_URL: http://orchestrator:8000
       ACE_DATA_ROOT: /data
       ACE_ORCHESTRATOR_TIMEOUT_SECONDS: ${ACE_ORCHESTRATOR_TIMEOUT_SECONDS:-300}
@@ -409,6 +438,7 @@ services:
       - "8070"
 
   ace-frontend:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: apps/ace/frontend/Dockerfile
@@ -419,10 +449,12 @@ services:
       - "80"
 
   evaluation-backend:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: apps/evaluation/backend/Dockerfile
     environment:
+      <<: *observability-env
       DATABASE_URL: ${DATABASE_URL:-postgresql://vht_dev:change-me-dev@postgres:5432/vht_dev}
       ORCHESTRATOR_URL: http://orchestrator:8000
       APP_ACCESS_KEY: ${APP_ACCESS_KEY:-dev-template-key}
@@ -436,6 +468,7 @@ services:
       - "8050"
 
   evaluation-frontend:
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: apps/evaluation/frontend/Dockerfile
@@ -451,6 +484,7 @@ services:
       - "80"
 
   gateway:
+    <<: *service-defaults
     image: nginx:1.27-alpine
     depends_on:
       simple-chat-frontend:

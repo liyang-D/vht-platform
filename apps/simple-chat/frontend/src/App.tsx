@@ -227,16 +227,15 @@ async function convertToWav(audioBlob: Blob) {
 }
 
 async function readError(response: Response) {
+  let message = 'Request failed'
   try {
     const payload = await response.json()
     const detail = payload.detail ?? payload.error ?? payload.message
 
     if (typeof detail === 'string') {
-      return detail
-    }
-
-    if (Array.isArray(detail)) {
-      return detail
+      message = detail
+    } else if (Array.isArray(detail)) {
+      message = detail
         .map((item) => {
           if (typeof item === 'string') {
             return item
@@ -249,16 +248,16 @@ async function readError(response: Response) {
           return JSON.stringify(item)
         })
         .join('; ')
+    } else if (detail && typeof detail === 'object') {
+      message = JSON.stringify(detail)
     }
-
-    if (detail && typeof detail === 'object') {
-      return JSON.stringify(detail)
-    }
-
-    return 'Request failed'
   } catch {
-    return 'Request failed'
+    // Keep the generic message and still expose the correlation ID below.
   }
+  const requestId = response.headers.get('x-request-id')
+  return requestId && !message.includes('request ID:')
+    ? `${message} (request ID: ${requestId})`
+    : message
 }
 
 function sleep(milliseconds: number) {
@@ -268,7 +267,10 @@ function sleep(milliseconds: number) {
 }
 
 async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit) {
-  const maxAttempts = 3
+  // Retrying mutating requests can create duplicate sessions/messages when the
+  // first request succeeds upstream but its response is interrupted.
+  const method = (init?.method ?? 'GET').toUpperCase()
+  const maxAttempts = method === 'GET' || method === 'HEAD' ? 3 : 1
   let lastError: unknown = null
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

@@ -9,11 +9,13 @@ from pydantic import BaseModel, Field
 
 import history_repository
 import orchestrator_client
+from shared.observability import install_http_observability
 from shared.scenarios import default_scenario
 
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Evaluation Backend", version="0.1.0")
+install_http_observability(app, "evaluation-backend")
 
 
 class ScenarioOverride(BaseModel):

@@ -15,8 +15,11 @@ is not clinically validated.
   families: clock, cube, infinity, writing, and pen/paper actions.
 - Local VHT LLM, Qwen3-VL, ASR, and TTS only. No model replacement, tuning,
   clinical validation, avatar, or multi-user design.
-- Session config, original media, transcriptions, checkpoints, model responses,
-  scores, and failures are isolated under the `ace_data` volume.
+- Structured session config, current checkpoint/report, status, and review
+  notes are indexed in Postgres (`ace_assessments`). Original media,
+  transcriptions, model responses, and JSON recovery copies remain isolated
+  under the `ace_data` volume. Worker failures are correlated in
+  `operational_events` by session ID.
 - The app is deliberately absent from the shared gateway. Development exposure
   is loopback-only on port `8071`.
 

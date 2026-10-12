@@ -5,6 +5,7 @@ import json
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import FormData
+from shared.observability import install_http_observability
 
 from . import session
 from .lora_routes import router as lora_router
@@ -26,6 +27,7 @@ app = FastAPI(
     title="VHT Orchestrator",
     version="0.1.0",
 )
+logger = install_http_observability(app, "orchestrator")
 
 app.include_router(lora_router)
 app.include_router(vision_router)

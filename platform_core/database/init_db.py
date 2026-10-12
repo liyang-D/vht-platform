@@ -76,6 +76,16 @@ def seed_defaults(cursor) -> None:
     )
 
 
+def prune_operational_events(cursor) -> None:
+    retention_days = int(os.getenv("OPERATIONAL_EVENT_RETENTION_DAYS", "90"))
+    if retention_days < 1:
+        raise ValueError("OPERATIONAL_EVENT_RETENTION_DAYS must be at least 1.")
+    cursor.execute(
+        "DELETE FROM operational_events WHERE created_at < NOW() - (%s * INTERVAL '1 day')",
+        (retention_days,),
+    )
+
+
 def main() -> None:
     load_dotenv()
 
@@ -91,6 +101,7 @@ def main() -> None:
             with conn.cursor() as cursor:
                 run_sql_file(cursor, SCHEMA_PATH)
                 seed_defaults(cursor)
+                prune_operational_events(cursor)
 
         print("Database initialised successfully.")
 

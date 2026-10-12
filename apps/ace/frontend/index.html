@@ -4,19 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VHT ACE Prototype</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=14" />
 </head>
 <body>
   <main>
-    <header><span class="eyebrow">VHT APP</span><h1>ACE-III local prototype</h1>
-      <p class="warning">Research prototype — not clinically validated.</p></header>
+    <header class="page-header">
+      <div><span class="eyebrow">VHT APP</span><h1>ACE-III local prototype</h1>
+        <p class="warning">Research prototype — not clinically validated.</p></div>
+      <a class="button-link secondary history-link" href="history.html">Session history</a>
+    </header>
     <section id="setup" class="card">
       <h2>Session setup</h2>
       <form id="start-form">
-        <div class="grid">
-          <label>Participant name<input name="patient_name" required value="Synthetic Participant" /></label>
+        <div class="grid setup-primary">
+          <label>Session / participant label<input name="patient_name" required value="Pilot Session" /></label>
           <label>Date of birth<input name="dob" required value="1970-01-01" /></label>
-          <label>Assessor<input name="assessor" required value="Internal tester" /></label>
+        </div>
+        <details class="advanced-fields"><summary>Session defaults and orientation answers</summary><div class="grid">
+          <label>Assessor<input name="assessor" required value="Developer" /></label>
           <label>Building/floor<input name="number" required value="4" /></label>
           <label>Street<input name="street" required value="Hospital Road" /></label>
           <label>Town<input name="town" required value="Canterbury" /></label>
@@ -26,26 +31,24 @@
           <label>Current US president<input name="us_president" required /></label>
           <label>Previous UK PM<input name="previous_uk_pm" /></label>
           <label>Previous US president<input name="previous_us_president" /></label>
-        </div>
+        </div></details>
         <label class="check"><input type="checkbox" name="synthesize" checked /> Generate local TTS</label>
-        <button>Start assessment</button>
+        <div class="setup-actions"><button>Start assessment</button></div>
       </form>
-      <form id="resume-form"><label>Existing session ID<input id="resume-id" /></label><button class="secondary">Resume checkpoint</button></form>
     </section>
     <div id="assessment-layout" class="assessment-layout hidden">
     <section id="session" class="card">
       <div class="status"><span id="status-dot"></span><span id="status-text">Starting</span></div>
       <h2 id="prompt">Preparing the first question…</h2>
-      <audio id="audio" controls autoplay></audio>
-      <img id="stimulus" class="hidden" alt="Assessment stimulus" />
+      <audio id="audio" controls></audio>
+      <div id="stimulus-stage" class="stimulus-stage hidden"><img id="stimulus" alt="Assessment stimulus" /><div id="click-overlay" class="click-overlay hidden" aria-label="Point to an image"></div><div id="naming-overlay" class="naming-overlay hidden" aria-label="Picture currently being named"></div></div>
       <div id="controls">
         <div id="audio-controls" class="hidden"><button id="record">Record answer</button><button id="stop" disabled>Done</button></div>
         <div id="image-controls" class="hidden"><video id="camera" autoplay playsinline></video><button id="capture">Capture drawing</button></div>
         <div id="video-controls" class="hidden"><video id="video-preview" autoplay muted playsinline></video><button id="record-video">Record action</button><button id="stop-video" disabled>Done</button></div>
-        <div id="click-controls" class="click-grid hidden"></div>
         <form id="text-form"><input id="text-answer" placeholder="Typed/replay answer" /><button>Submit text</button></form>
       </div>
-      <button id="pause" class="secondary">Save checkpoint</button>
+      <div class="session-actions"><button id="pause" class="secondary">Save draft</button><button id="finish-partial">End and score completed questions</button></div>
       <pre id="error"></pre>
     </section>
     <aside id="assessment-directory" class="directory-card">
@@ -63,7 +66,8 @@
       <div class="console-title"><div><h2>Debug log</h2><p>Recording, playback, upload and runtime events.</p></div><button id="clear-console" class="secondary" type="button">Clear</button></div>
       <pre id="debug-console" aria-live="polite"></pre>
     </section>
+    <dialog id="report-dialog"><button id="close-report" class="dialog-close" type="button">Close</button><div id="report-content"></div></dialog>
   </main>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

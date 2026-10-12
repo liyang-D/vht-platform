@@ -1,9 +1,13 @@
+import json
+
 from ace_core.marking.marking import (
     score_all_correct_list,
     score_integer,
     score_mixed_list,
     score_serial_sevens,
+    score_question,
 )
+from ace_core.data_loader import ace_json
 from ace_core.visual_tasks.clock_scorer import score_clock
 from ace_core.visual_tasks.cube_scorer import score_cube
 from ace_core.visual_tasks.infinity_scorer import score_infinity
@@ -29,3 +33,18 @@ def test_all_deterministic_visual_rubrics():
     assert score_cube({"all_edges_present": "yes", "general_cube_shape": "yes"})["total"] == 2
     assert score_infinity({"figure_eight_count": 2, "loops_cross_at_intersection": "yes", "figure_eights_overlap": "yes"})["total"] == 1
     assert score_pen_paper({"paper_placed_on_pencil": "yes", "pencil_lifted_without_paper": "yes", "pencil_lifted_after_touching_paper": "yes"})["total"] == 3
+
+
+def test_picture_naming_is_scored_by_picture_position_not_as_one_bag_of_words():
+    question = ace_json["Language"]["questions"][5]
+    response = json.dumps({"responses": [
+        {"grid_index": index, "response": value}
+        for index, value in enumerate(question["answers"])
+    ]})
+    swapped = json.dumps({"responses": [
+        {"grid_index": index, "response": value}
+        for index, value in enumerate(reversed(question["answers"]))
+    ]})
+
+    assert score_question(response, question) == 12
+    assert score_question(swapped, question) < 12

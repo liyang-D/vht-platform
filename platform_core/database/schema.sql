@@ -86,6 +86,32 @@ CREATE TABLE IF NOT EXISTS audit_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS operational_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service TEXT NOT NULL,
+    request_id TEXT,
+    severity TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    session_id TEXT,
+    details JSONB NOT NULL DEFAULT '{}'::JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ace_assessments (
+    session_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'started',
+    participant_name TEXT,
+    assessor_name TEXT,
+    config JSONB NOT NULL DEFAULT '{}'::JSONB,
+    runtime_config JSONB NOT NULL DEFAULT '{}'::JSONB,
+    latest_checkpoint JSONB,
+    report JSONB,
+    review_notes JSONB NOT NULL DEFAULT '{}'::JSONB,
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_access_keys_project_id ON access_keys(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_access_key_id ON sessions(access_key_id);
@@ -100,3 +126,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_session_id ON audit_events(session_i
 CREATE INDEX IF NOT EXISTS idx_audit_events_turn_id ON audit_events(turn_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_operational_events_service_created
+ON operational_events(service, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_operational_events_request_id
+ON operational_events(request_id) WHERE request_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_operational_events_session_id
+ON operational_events(session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ace_assessments_updated_at
+ON ace_assessments(updated_at DESC);

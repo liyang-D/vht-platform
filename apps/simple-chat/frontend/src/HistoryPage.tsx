@@ -59,7 +59,9 @@ function HistoryPage() {
 
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
-          throw new Error(payload?.detail ?? 'Could not load session history')
+          const requestId = response.headers.get('x-request-id')
+          const detail = payload?.detail ?? 'Could not load session history'
+          throw new Error(requestId ? `${detail} (request ID: ${requestId})` : detail)
         }
 
         const payload = (await response.json()) as HistoryResponse

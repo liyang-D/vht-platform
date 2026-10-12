@@ -238,6 +238,60 @@ Useful `psql` commands:
 \dt
 ```
 
+## Logs, diagnostics, and data ownership
+
+Shared HTTP request logs are emitted as one-line JSON to stdout (some runtime
+libraries may also emit their own text logs). Each HTTP response has
+an `X-Request-ID`; Simple Chat also shows that ID in user-visible errors. The
+same ID is forwarded from Simple Chat to the orchestrator, so one failed action
+can be followed across containers without reproducing it from a screenshot.
+
+Docker retains stdout/stderr with bounded rotation. Defaults are five files of
+20 MiB per container and can be changed with `CONTAINER_LOG_MAX_SIZE` and
+`CONTAINER_LOG_MAX_FILES`. Inspect a request or session with:
+
+```bash
+docker compose --env-file infra/env/dev.env -p vht-dev \
+  -f infra/compose.yml -f infra/compose.dev.yml logs --since 30m \
+  simple-chat-backend orchestrator
+```
+
+Normal request completion logs stay only in the rotated container logs.
+Actionable server failures are additionally written to Postgres table
+`operational_events`, with service, request ID, optional session ID, status,
+duration, exception type, and bounded error detail. They contain no request
+bodies, audio, images, access keys, or cookies. `DATABASE_EVENT_LOGGING=false`
+disables this secondary write. Old operational events are pruned whenever the
+`migrate` job runs; the default retention is 90 days, configured by
+`OPERATIONAL_EVENT_RETENTION_DAYS`.
+
+```sql
+SELECT created_at, service, request_id, event_type, details
+FROM operational_events
+WHERE request_id = 'REQUEST_ID_FROM_UI_OR_RESPONSE';
+
+SELECT created_at, service, event_type, details
+FROM operational_events
+WHERE session_id = 'SESSION_ID'
+ORDER BY created_at;
+```
+
+Business records have separate ownership:
+
+- `sessions`, `turns`, `messages`, and `audit_events` are the authoritative
+  Simple Chat/Evaluation/orchestrator conversation and audit history.
+- `ace_assessments` is the searchable source for ACE configuration, latest
+  checkpoint/report, status, and review notes. Existing volume-only sessions
+  are imported into it when ACE history is opened.
+- ACE binary evidence (audio, images, video), model-response artifacts, and
+  checkpoint/report files remain under the `ace_data` volume. The database
+  stores their structured index/state, not duplicated large blobs.
+- Runtime model caches live in the named Hugging Face/NIM volumes. They are
+  rebuildable caches, not business records.
+
+The real dev/prod env files and their example schemas are checked together by
+`infra/check-env-schema.sh`, including ignored local env files.
+
 Dev also starts Adminer at `http://localhost:8080` by default. Login with:
 
 - System: `PostgreSQL`
